@@ -1,0 +1,370 @@
+import torch
+import numpy as np
+from scipy.integrate import solve_ivp
+import numpy as np
+
+class vecField:
+    def __init__(self,system="Rober",d=3):
+        self.system = system 
+                
+        if self.system=="Rober":
+            self.k1 = 0.04
+            self.k2 = 3e7
+            self.k3 = 1e4
+            self.dt_fine = 0.
+            self.d = d
+        elif self.system=="SIR":
+            self.beta = 0.1
+            self.gamma = 0.1
+            self.N = 1.
+            self.dt_fine = 0.
+            self.d = d
+        elif self.system=="Brusselator":
+            self.A = 1.
+            self.B = 3.
+            self.dt_fine = 0.
+            self.d = d
+        elif self.system=="Arenstorf":
+            self.a = 0.012277471
+            self.b = 1.-self.a
+            self.dt_fine = 0.
+            self.d = d
+        elif self.system=="Lorenz":
+            self.sigma = 10.
+            self.r = 28.
+            self.b = 8/3
+            self.dt_fine = 0.
+            self.d = d
+        elif self.system=="Burger":
+            self.nu = 1/100
+            self.L = 1
+            self.N = 101
+            self.x = np.linspace(0,self.L,self.N)
+            self.dx = self.x[1]-self.x[0]
+            self.dt_fine = 0.
+            self.d = d
+        else:
+            print("This dynamics is not implemented.")
+            
+    
+    def eval(self,y):
+        if self.system=="Rober":
+            # Chemical parameters definition
+            
+            if len(y.shape)==2:
+                y1,y2,y3 = y[:,0:1],y[:,1:2],y[:,2:3]
+                return torch.cat([
+                        -self.k1*y1 + self.k3*y2*y3,
+                        self.k1*y1 - self.k2*(y2**2) - self.k3*y2*y3,
+                        self.k2*(y2**2)
+                    ],dim=1)
+            else:
+                y1,y2,y3 = y[0],y[1],y[2]
+                return torch.tensor([
+                    -self.k1*y1 + self.k3*y2*y3,
+                    self.k1*y1 - self.k2*(y2**2) - self.k3*y2*y3,
+                    self.k2*(y2**2)
+                ])
+        elif self.system=="SIR":
+            if len(y.shape)==2:
+                y1,y2,y3 = y[:,0:1],y[:,1:2],y[:,2:3]
+                return torch.cat((
+                    -self.beta*y2*y1/self.N,
+                    self.beta*y1*y2/self.N - self.gamma*y2,
+                    self.gamma*y2
+                ),dim=1)
+            else:
+                y1,y2,y3 = y[0],y[1],y[2]
+                return torch.tensor([
+                    -self.beta*y2*y1/self.N,
+                    self.beta*y1*y2/self.N - self.gamma*y2,
+                    self.gamma*y2
+                ])
+        
+        elif self.system=="Brusselator":
+            if len(y.shape)==2:
+                xx,yy = y[:,0:1],y[:,1:2]
+                return torch.cat((
+                    self.A+xx**2*yy - (self.B+1)*xx,
+                    self.B*xx-xx**2*yy
+                ),dim=1)
+            else:
+                xx,yy = y[0],y[1]
+                return torch.tensor([
+                    self.A+xx**2*yy - (self.B+1)*xx,
+                    self.B*xx-xx**2*yy
+                ])
+        
+        elif self.system=="Arenstorf":
+            if len(y.shape)==2:
+                xx,xxp,yy,yyp = y[:,0:1],y[:,1:2],y[:,2:3],y[:,3:4]
+                
+                D1 = ((xx+self.a)**2+yy**2)**(3/2)
+                D2 = ((xx-self.b)**2+yy**2)**(3/2)
+                
+                return torch.cat((
+                    xxp,
+                    xx+2*yyp-self.b*(xx+self.a)/D1-self.a*(xx-self.b)/D2,
+                    yyp,
+                    yy-2*xxp-self.b*yy/D1-self.a*yy/D2
+                ),dim=1)
+            else:
+                xx,xxp,yy,yyp = y[0],y[1],y[2],y[3]
+                D1 = ((xx+self.a)**2+yy**2)**(3/2)
+                D2 = ((xx-self.b)**2+yy**2)**(3/2)
+                
+                return torch.tensor([
+                    xxp,
+                    xx+2*yyp-self.b*(xx+self.a)/D1-self.a*(xx-self.b)/D2,
+                    yyp,
+                    yy-2*xxp-self.b*yy/D1-self.a*yy/D2
+                ])
+        elif self.system=="Lorenz":
+            if len(y.shape)==2:
+                xx,yy,zz = y[:,0:1],y[:,1:2],y[:,2:3]
+                
+                return torch.cat((
+                    -self.sigma*xx+self.sigma*yy,
+                    -xx*zz+self.r*xx-yy,
+                    xx*yy-self.b*zz
+                ),dim=1)
+            else:
+                xx,yy,zz = y[0],y[1],y[2]
+                return torch.tensor([
+                    -self.sigma*xx+self.sigma*yy,
+                    -xx*zz+self.r*xx-yy,
+                    xx*yy-self.b*zz
+                ])
+        
+        else:
+            print("Dynamics not implemented")
+
+    def residualLoss(self,z,z_d):
+        return torch.mean((self.eval(z)-z_d)**2)
+    
+def solution_scipy(y0,t_eval,vec):
+    
+    #This method computes the approximate solution starting from y0
+    #over the time interval t_eval of the vector field vec using a BDF
+    #method from the Scipy library.
+
+    print("Currently solving with Scipy integrator")
+    
+    def fun(t,y):
+        if vec.system=="SIR":
+            y1,y2,y3 = y[0],y[1],y[2]
+            return np.array([
+                    -vec.beta*y2*y1/vec.N,
+                    vec.beta*y1*y2/vec.N - vec.gamma*y2,
+                    vec.gamma*y2
+                ])
+        if vec.system=="Brusselator":
+            xx,yy = y[0],y[1]
+            return np.array([
+                vec.A+xx**2*yy - (vec.B+1)*xx,
+                vec.B*xx-xx**2*yy
+            ])
+        else:
+            print("Dynamics not implemented")
+
+    t_span = [t_eval[0],t_eval[-1]]
+    res = solve_ivp(fun, t_span=t_span, t_eval=t_eval, y0=y0, method='BDF')
+    return res.y
+
+def approximate_solution(y0,model,time,dtype,vec,device):
+    
+    #This method evaluates the network solution on the entries of the time array
+    #with initial condition stored in y0.
+    
+    print("Currently generating the network predictions")
+    count = 1
+    d = len(y0)
+    dt = model.dt
+    sol = torch.zeros((len(time),d),dtype=dtype).to(device)
+    sol[0] = y0
+    pos = 0
+    for i in range(1,len(time)):
+        t = time[i:i+1]
+        if t>count*dt:
+            count+=1
+            pos = i-1
+        if dtype==torch.float32:
+            supp = model(sol[pos:pos+1],torch.from_numpy((t-dt*(count-1)).astype(np.float32)).to(device))
+        else:
+            supp = model(sol[pos:pos+1],torch.from_numpy((t-dt*(count-1))).to(device))
+        sol[i:i+1] = supp
+    return sol
+    
+
+import numpy as np
+
+class vecField_np:
+    def __init__(self,system="Rober"):
+        self.system = system 
+                
+        if self.system=="Rober":
+            self.k1 = 0.04
+            self.k2 = 3e7
+            self.k3 = 1e4
+            self.dt_fine = 0.
+        elif self.system=="SIR":
+            self.beta = 0.1
+            self.gamma = 0.1
+            self.N = 1.
+            self.dt_fine = 0.
+        elif self.system=="Brusselator":
+            self.A = 1.
+            self.B = 3.
+            self.dt_fine = 0.
+        elif self.system=="Arenstorf":
+            self.a = 0.012277471
+            self.b = 1.-self.a
+            self.dt_fine = 0.
+        elif self.system=="Lorenz":
+            self.sigma = 10.
+            self.r = 28.
+            self.b = 8/3
+            self.dt_fine = 0.
+        elif self.system=="Burger":
+            self.nu = 1/100
+            self.L = 1
+            self.N = 101
+            self.x = np.linspace(0,self.L,self.N)
+            self.dx = self.x[1]-self.x[0]
+            self.dt_fine = 0.
+        else:
+            print("This dynamics is not implemented.")
+            
+    
+    def eval(self,y):
+        if self.system=="Rober":
+            # Chemical parameters definition
+            
+            if len(y.shape)==2:
+                y1,y2,y3 = y[:,0:1],y[:,1:2],y[:,2:3]
+                return np.concatenate([
+                        -self.k1*y1 + self.k3*y2*y3,
+                        self.k1*y1 - self.k2*(y2**2) - self.k3*y2*y3,
+                        self.k2*(y2**2)
+                    ],axis=1)
+            else:
+                y1,y2,y3 = y[0],y[1],y[2]
+                return np.array([
+                    -self.k1*y1 + self.k3*y2*y3,
+                    self.k1*y1 - self.k2*(y2**2) - self.k3*y2*y3,
+                    self.k2*(y2**2)
+                ])
+        elif self.system=="SIR":
+            if len(y.shape)==2:
+                y1,y2,y3 = y[:,0:1],y[:,1:2],y[:,2:3]
+                return np.concatenate((
+                    -self.beta*y2*y1/self.N,
+                    self.beta*y1*y2/self.N - self.gamma*y2,
+                    self.gamma*y2
+                ),axis=1)
+            else:
+                y1,y2,y3 = y[0],y[1],y[2]
+                return np.array([
+                    -self.beta*y2*y1/self.N,
+                    self.beta*y1*y2/self.N - self.gamma*y2,
+                    self.gamma*y2
+                ])
+        
+        elif self.system=="Brusselator":
+            if len(y.shape)==2:
+                xx,yy = y[:,0:1],y[:,1:2]
+                return np.concatenate((
+                    self.A+xx**2*yy - (self.B+1)*xx,
+                    self.B*xx-xx**2*yy
+                ),axis=1)
+            else:
+                xx,yy = y[0],y[1]
+                return np.array([
+                    self.A+xx**2*yy - (self.B+1)*xx,
+                    self.B*xx-xx**2*yy
+                ])
+        
+        elif self.system=="Arenstorf":
+            if len(y.shape)==2:
+                xx,xxp,yy,yyp = y[:,0:1],y[:,1:2],y[:,2:3],y[:,3:4]
+                
+                D1 = ((xx+self.a)**2+yy**2)**(3/2)
+                D2 = ((xx-self.b)**2+yy**2)**(3/2)
+                
+                return np.concatenate((
+                    xxp,
+                    xx+2*yyp-self.b*(xx+self.a)/D1-self.a*(xx-self.b)/D2,
+                    yyp,
+                    yy-2*xxp-self.b*yy/D1-self.a*yy/D2
+                ),axis=1)
+            else:
+                xx,xxp,yy,yyp = y[0],y[1],y[2],y[3]
+                D1 = ((xx+self.a)**2+yy**2)**(3/2)
+                D2 = ((xx-self.b)**2+yy**2)**(3/2)
+                
+                return np.array([
+                    xxp,
+                    xx+2*yyp-self.b*(xx+self.a)/D1-self.a*(xx-self.b)/D2,
+                    yyp,
+                    yy-2*xxp-self.b*yy/D1-self.a*yy/D2
+                ])
+        elif self.system=="Lorenz":
+            if len(y.shape)==2:
+                xx,yy,zz = y[:,0:1],y[:,1:2],y[:,2:3]
+                
+                return np.concatenate((
+                    -self.sigma*xx+self.sigma*yy,
+                    -xx*zz+self.r*xx-yy,
+                    xx*yy-self.b*zz
+                ),axis=1)
+            else:
+                xx,yy,zz = y[0],y[1],y[2]
+                return np.array([
+                    -self.sigma*xx+self.sigma*yy,
+                    -xx*zz+self.r*xx-yy,
+                    xx*yy-self.b*zz
+                ])
+        
+        elif self.system=="Burger":
+            if len(y.shape)==2:    
+                
+                '''y_x = (np.roll(y, -1, axis=1) - np.roll(y, 1, axis=1)) / (2 * self.dx)
+                y_xx = (np.roll(y, -1, axis=1) - 2 * y + np.roll(y, 1, axis=1)) / self.dx**2
+                #Homogeneous Dirichlet boundary conditions
+                y_x[0] *= 0.
+                y_x[-1] *= 0.
+                y_xx[0] *= 0.
+                y_xx[-1] *= 0.'''
+                
+                N = self.N
+                dx = self.dx
+                vv = np.ones(N-1)
+                Shift_forward = np.diag(vv,k=1)
+                Shift_backward = np.diag(vv,k=-1)
+                #For the boundary conditions
+                Shift_backward[-1]*=0
+                Shift_forward[0]*=0
+                D2 = (Shift_forward + Shift_backward - 2*np.eye(N))/(dx**2)
+                D1 = 1/(2*dx) * (Shift_forward-Shift_backward)
+                
+                vec = -y * (y@D1.T) + self.nu * (y@D2.T)
+                return vec
+            else:
+                N = self.N
+                dx = self.dx
+                vv = np.ones(N-1)
+                Shift_forward = np.diag(vv,k=1)
+                Shift_backward = np.diag(vv,k=-1)
+                #For the boundary conditions
+                Shift_backward[-1]*=0
+                Shift_forward[0]*=0
+                D2 = (Shift_forward + Shift_backward - 2*np.eye(N))/(dx**2)
+                D1 = 1/(2*dx) * (Shift_forward-Shift_backward)
+                
+                vec = -y * (D1@y) + self.nu * (D2@y)
+                return vec
+                
+        
+        else:
+            pass
+
