@@ -98,8 +98,9 @@ if __name__ == '__main__':
 
         if system=="Lorenz":
                 nodes = "lobatto"
+                avg_time_lobatto = time_lib.time()
                 _,_,coarse_approx_lob,networks_lob,data_lob = run_experiment([system,nodes],return_nets=True,verbose=False)
-
+                avg_time_lobatto = time_lib.time() - avg_time_lobatto
                 def get_detailed_solution_lob():
                         num_steps = np.rint(networks_lob[0].dt / vecRef.dt_fine).astype(int)
                         time_plot = np.linspace(0.,networks_lob[0].dt,num_steps+1)
