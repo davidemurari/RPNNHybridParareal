@@ -15,7 +15,7 @@ from scripts.repeated_experiments import run_experiment
 if __name__ == '__main__':
         
         cwd = os.getcwd()
-        os.chdir(cwd+"/ELM")
+        os.chdir(cwd+"/RPNN")
         print("Current working directory: ",os.getcwd())
         
         system = input("Which among the following systems do you want to consider?\n .\

@@ -21,7 +21,7 @@ from tqdm import tqdm
 if __name__ == '__main__':
         
         cwd = os.getcwd()
-        os.chdir(cwd+"/ELM")
+        os.chdir(cwd+"/RPNN")
         print("Current working directory: ",os.getcwd())
         
         number_iterates = 100 #int(input("How many repeated experiments do you want to perform?\n")) 

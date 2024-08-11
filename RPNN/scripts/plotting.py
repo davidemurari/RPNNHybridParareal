@@ -65,9 +65,9 @@ def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_o
             plt.legend(loc='upper center', ncol=2)
             
             if avg_time==-1:
-                pass #title = f"Comparison of solutions,\n ELM"
+                pass #title = f"Comparison of solutions,\n RPNN"
             else:
-                title = f"ELM, Average computational time: {np.round(avg_time,2)}s"
+                title = f"RPNN, Average computational time: {np.round(avg_time,2)}s"
                 plt.title(title)
 
             #if avg_time!=-1:
@@ -85,9 +85,9 @@ def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_o
                 ax1.plot(time_plot,network_sol[i],'--',color=front_colors[i],label=f"{list_of_labels[i]} para",linewidth=5)
             
             if avg_time==-1:
-                ax1.set_title(f"ELM")
+                ax1.set_title(f"RPNN")
             else:
-                ax1.set_title(f"ELM \n Average computational time: {np.round(avg_time,2)}s")
+                ax1.set_title(f"RPNN \n Average computational time: {np.round(avg_time,2)}s")
             ax1.set_xlabel(r'$t$')
             
             ax1.set_ylim(bottom=-0.1,top=1.75)
