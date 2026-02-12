@@ -5,6 +5,7 @@ import random
 import os
 import multiprocessing
 import datetime
+import argparse
 
 from scripts.dynamics import vecField
 from scripts.plotting import plot_results
@@ -14,16 +15,28 @@ from scripts.repeated_experiments import run_experiment
 
 if __name__ == '__main__':
         
+        system_names = ["SIR","Lorenz","Brusselator","Arenstorf","Rober","BurgerQ","Burger1W","BurgerSW"]
+
+        parser = argparse.ArgumentParser(description="Run a single experiment for a selected dynamical system.")
+        parser.add_argument(
+                "--system",
+                choices=system_names,
+                required=True,
+                help="System to run.",
+        )
+        parser.add_argument(
+                "--ab_init",
+                choices=["uniform", "centred"],
+                default="uniform",
+                help="Initialization for a,b: 'uniform' or 'centred'.",
+        )
+        args = parser.parse_args()
+        
         cwd = os.getcwd()
         os.chdir(cwd+"/RPNN")
         print("Current working directory: ",os.getcwd())
         
-        system = input("Which among the following systems do you want to consider?\n .\
-        Write one among the following: SIR, Lorenz, Brusselator, Arenstorf, Rober, BurgerQ, Burger1W, BurgerSW\n .\
-                BurgerQ stands for Burgers with Quadratic initial condition,\n .\
-                Burger1W stands for Burgers with a sinusoidal initial condition,\n .\
-                BurgerSW stands for Burgers with a sum of waves as initial condition.\n")
-
+        system = args.system
         print(f"You chose SYSTEM = {system}")
 
         nodes = "uniform"
@@ -39,9 +52,8 @@ if __name__ == '__main__':
         avg_time_SIR_flow = None
         avg_time_lobatto=None
         
-        
         computational_time = time_lib.time()
-        _,_,coarse_approx,networks,data = run_experiment([system,nodes],return_nets=True,verbose=False)
+        _,_,coarse_approx,networks,data = run_experiment([system,nodes,args.ab_init],return_nets=True,verbose=False)
         computational_time = time_lib.time() - computational_time
         
         if system=="Burger" or system=="BurgerQ":
@@ -99,7 +111,7 @@ if __name__ == '__main__':
         if system=="Lorenz":
                 nodes = "lobatto"
                 avg_time_lobatto = time_lib.time()
-                _,_,coarse_approx_lob,networks_lob,data_lob = run_experiment([system,nodes],return_nets=True,verbose=False)
+                _,_,coarse_approx_lob,networks_lob,data_lob = run_experiment([system,nodes,args.ab_init],return_nets=True,verbose=False)
                 avg_time_lobatto = time_lib.time() - avg_time_lobatto
                 def get_detailed_solution_lob():
                         num_steps = np.rint(networks_lob[0].dt / vecRef.dt_fine).astype(int)
@@ -133,4 +145,5 @@ if __name__ == '__main__':
                      network_sol_lobatto=network_sol_lobatto,
                      avg_time_lobatto=avg_time_lobatto,
                      network_sol_SIR_flow=network_sol_SIR_flow,
-                     avg_time_SIR_flow=avg_time_SIR_flow)
+                     avg_time_SIR_flow=avg_time_SIR_flow,
+                     ab_init=args.ab_init)

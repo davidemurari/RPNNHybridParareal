@@ -9,11 +9,24 @@ from tqdm import tqdm
 import multiprocessing
 
 from scripts.dynamics import vecField
+from scripts.utils import sample_ab_node_centered, uniformPoints, lobattoPoints
 from scripts.parareal import parallel_solver
 
 def run_experiment(args,return_nets=False,verbose=False):
         
-        system, nodes = args
+        if len(args) == 2:
+                system, nodes = args
+                ab_init = "uniform"
+                a_min = None
+                a_max = None
+        elif len(args) == 3:
+                system, nodes, ab_init = args
+                a_min = None
+                a_max = None
+        elif len(args) == 5:
+                system, nodes, ab_init, a_min, a_max = args
+        else:
+                raise ValueError("run_experiment expects 2, 3, or 5 arguments in args tuple/list.")
         if system=="BurgerQ" or system=="Burger":
                 system="Burger"
                 ic = "quadratic"
@@ -102,8 +115,26 @@ def run_experiment(args,return_nets=False,verbose=False):
                 print("Dynamics not implemented")
                 
 
-        weight = np.random.uniform(low=LB,high=UB,size=(L))
-        bias = np.random.uniform(low=LB,high=UB,size=(L))
+        if ab_init == "centred":
+                if a_min is None:
+                        a_min = abs(LB)
+                if a_max is None:
+                        a_max = abs(UB)
+                if nodes == "uniform":
+                        tau = uniformPoints(n_x)
+                elif nodes == "lobatto":
+                        tau = lobattoPoints(n_x)
+                else:
+                        raise ValueError(f"Unsupported nodes='{nodes}' for centred initialization.")
+                weight, bias = sample_ab_node_centered(
+                        tau=tau,
+                        a_min=a_min,
+                        a_max=a_max,
+                        jitter=0.1,
+                )
+        else:
+                weight = np.random.uniform(low=LB,high=UB,size=(L))
+                bias = np.random.uniform(low=LB,high=UB,size=(L))
 
         data = {"vecRef":vecRef,
                 "LB" : LB,

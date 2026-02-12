@@ -57,7 +57,7 @@ def getCoarse(time,data,previous=[],networks=[]):
             
     return coarse_approx, networks
     
-def getNextCoarse(time,y,i,data,networks=[]):
+def getNextCoarse(time,y,i,data,networks=[], freeze=False):
     
     dts = np.diff(time)
     
@@ -76,15 +76,47 @@ def getNextCoarse(time,y,i,data,networks=[]):
     flow = flowMap(y0=y,initial_proj=initial_proj,weight=weight,bias=bias,dt=dts[i],n_t=n_t,n_x=n_x,L=L,LB=LB,UB=UB,system=system,act_name="Tanh")
     if len(networks)>0:
         flow.computed_projection_matrices = networks[i].computed_projection_matrices.copy()
+        #flow.y0 = y
+    #flow.approximate_flow_map()
+    #networks[i] = flow
+    #return flow.analyticalApproximateSolution(dts[i]), networks
+
+    if not freeze:
+        # Normal behaviour: retrain on the new initial condition
         flow.y0 = y
-    flow.approximate_flow_map()
+        flow.approximate_flow_map()
+    else:
+        # FROZEN coarse integrator:
+        # Do NOT change projection matrices; just propagate with new y
+        flow.y0_supp = y
+        flow.sol[0] = y
+        flow.training_err_vec[0] = 0.0
+
+        # Rebuild the trajectory using the fixed projection matrices
+        for j in range(flow.n_t - 1):
+            xi_j = flow.computed_projection_matrices[j]
+            y_seg = (flow.h - flow.h0) @ flow.to_mat(xi_j, flow.L, flow.d) + flow.y0_supp.reshape(1, -1)
+            flow.y0_supp = y_seg[-1]
+            flow.sol[j + 1] = flow.y0_supp
+
     networks[i] = flow
     return flow.analyticalApproximateSolution(dts[i]), networks
 
-def parallel_solver(time,data,dts,vecRef,number_processors,verbose=False):
+def parallel_solver(
+    time,
+    data,
+    dts,
+    vecRef,
+    number_processors,
+    verbose=False,
+    rel_thresh=1e-1
+    ):
     
     np.random.seed(17)
     random.seed(17)
+    
+    prev_Xi = None       # will hold projection matrices from previous iterate
+    freeze = False       # global flag
     
     max_it = 20 #maximum number of parareal iterates
     tol = 1e-4
@@ -108,7 +140,7 @@ def parallel_solver(time,data,dts,vecRef,number_processors,verbose=False):
             cost = time_lib.time()-initial_time
             computational_times_per_iterate.append(cost)
             if verbose:
-                print("Average cost per one coarse step : ",cost/len(dts))
+                print("Average cost per one coarse step : ",cost/len(dts))            
         else:
             initial_time = time_lib.time()
             
@@ -118,7 +150,7 @@ def parallel_solver(time,data,dts,vecRef,number_processors,verbose=False):
                 print("Time required for the fine solver : ",time_lib.time()-start_fine)
             for i in range(len(time)-1): 
                 previous = coarse_values_parareal[i+1].copy()
-                next,networks = getNextCoarse(y=coarse_values_parareal[i],i=i,time=time,data=data,networks=networks)
+                next,networks = getNextCoarse(y=coarse_values_parareal[i],i=i,time=time,data=data,networks=networks, freeze=freeze)
                 coarse_values_parareal[i+1] = fine_int[i] + next - coarse_approx[i+1]
                 coarse_approx[i+1] = next.copy()
                 norm_difference.append(np.linalg.norm(coarse_values_parareal[i+1]-previous,2))
@@ -129,6 +161,32 @@ def parallel_solver(time,data,dts,vecRef,number_processors,verbose=False):
             if verbose:
                 print("Maximum norm of difference :",np.round(np.max(norm_difference),10))
             is_converged = np.max(norm_difference)<tol
+        
+        # print(f"Iterate {it}")
+        if prev_Xi is None:
+            # first time we have networks from two consecutive it’s: store and go on
+            prev_Xi = [net.computed_projection_matrices.copy() for net in networks]
+        else:
+            rel_changes = []
+            for j, net in enumerate(networks):
+                Xi = net.computed_projection_matrices
+                Xi_prev = prev_Xi[j]
+
+                abs_change = np.linalg.norm(Xi - Xi_prev)
+                rel_change = abs_change / (np.linalg.norm(Xi_prev) + 1e-12)
+                rel_changes.append(rel_change)
+
+                # update stored matrices for next iteration
+                prev_Xi[j] = Xi.copy()
+
+            max_rel_change = max(rel_changes)
+            # print("max rel change over slabs:", max_rel_change)
+
+            # set global freeze flag for *next* iteration
+            '''if max_rel_change < rel_thresh:
+                freeze = True
+                print("-> freezing coarse integrator from next iterate on")'''
+        
         it+=1
         if verbose:
             print(f"Iterate {it} completed")

@@ -35,6 +35,19 @@ def lobattoPoints(n):
 def uniformPoints(n):
     return np.linspace(0,1,n)
     
+def sample_ab_node_centered(tau, a_min=5.0, a_max=10.0, jitter=0.01, rng=None):
+    rng = np.random.default_rng() if rng is None else rng
+    C = len(tau)
+    signs = rng.choice([-1.0, 1.0], size=C)
+    mags  = rng.uniform(a_min, a_max, size=C)
+    a = signs * mags
+
+    # permutation = "shuffle assignment"; set perm = np.arange(C) for identity
+    perm = rng.permutation(C)
+    centers = tau[perm] + rng.uniform(-jitter, jitter, size=C)
+    b = -a * centers
+    return a, b
+
 class flowMap:
     def __init__(self,y0,initial_proj,weight,bias,dt=1,n_t=2,n_x=5,L=5,LB=-1.,UB=1.,system="Rober",act_name="tanh",nodes="uniform",verbose=False):
         
@@ -58,22 +71,26 @@ class flowMap:
         self.L = L #number of neurons
         self.LB = LB #Lower boundary for weight and bias sampling 
         self.UB = UB #Upper boundary for weight and bias sampling
-        
-        if len(weight)==0:
-            self.weight = np.random.uniform(low=self.LB,high=self.UB,size=(self.L))
-        else:
-            self.weight = weight
-        if len(bias)==0:
-            self.bias = np.random.uniform(low=self.LB,high=self.UB,size=(self.L))
-        else:
-            self.bias = bias
-        
+                
         self.n_t = n_t
         self.t_tot = np.linspace(0,dt,self.n_t)
         if nodes=="uniform":
             self.x = uniformPoints(self.n_x)
         elif nodes=="lobatto":
             self.x = lobattoPoints(self.n_x)
+        
+        a,b = sample_ab_node_centered(tau=self.x, a_min=abs(self.LB), a_max=abs(self.UB), jitter=0.01)
+        
+        if len(weight)==0:
+            #self.weight = np.random.uniform(low=self.LB,high=self.UB,size=(self.L))
+            self.weight = a
+        else:
+            self.weight = weight
+        if len(bias)==0:
+            #self.bias = np.random.uniform(low=self.LB,high=self.UB,size=(self.L))
+            self.bias = b
+        else:
+            self.bias = bias
 
         for i in range(n_x):
             self.h[i], self.hd[i] = self.act(self.x[i],self.weight,self.bias)

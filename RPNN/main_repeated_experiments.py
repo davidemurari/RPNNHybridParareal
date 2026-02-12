@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import time as time_lib
 import random
 import os
+import argparse
 
 from tqdm import tqdm
 import datetime
@@ -20,23 +21,60 @@ from tqdm import tqdm
 
 if __name__ == '__main__':
         
+        system_names = ["SIR","Lorenz","Brusselator","Arenstorf","BurgerQ","Burger1W","BurgerSW"]
+
+        parser = argparse.ArgumentParser(description="Run repeated experiments for selected dynamical systems.")
+        parser.add_argument(
+                "--system_name",
+                default="all",
+                choices=system_names + ["all", "all_but_burgers"],
+                help="System to run: one of the listed systems, 'all', or 'all_but_burgers'.",
+        )
+        parser.add_argument(
+                "--ab_init",
+                choices=["uniform", "centred"],
+                default="uniform",
+                help="Initialization for a,b: 'uniform' or 'centred'.",
+        )
+        parser.add_argument(
+                "--a_min",
+                type=float,
+                default=1.0,
+                help="Lower bound for |a_i| when using centred AB init.",
+        )
+        parser.add_argument(
+                "--a_max",
+                type=float,
+                default=1.0,
+                help="Upper bound for |a_i| when using centred AB init.",
+        )
+        args = parser.parse_args()
+        
+        if args.a_min > args.a_max:
+                parser.error("--a_min must be <= --a_max.")
+        
+        ab_folder = "centred" if args.ab_init == "centred" else "uniform"
+        
+        if args.system_name == "all":
+                selected_systems = system_names
+        elif args.system_name == "all_but_burgers":
+                selected_systems = [s for s in system_names if not s.startswith("Burger")]
+        else:
+                selected_systems = [args.system_name]
+        
         cwd = os.getcwd()
         os.chdir(cwd+"/RPNN")
         print("Current working directory: ",os.getcwd())
         
         number_iterates = 100 #int(input("How many repeated experiments do you want to perform?\n")) 
-        '''system = input("Which among the following systems do you want to consider?\n .\
-        Write one among the following: SIR, Lorenz, Brusselator, Arenstorf, Rober, BurgerQ, Burger1W, BurgerSW\n .\
-                BurgerQ stands for Burgers with Quadratic initial condition,\n .\
-                Burger1W stands for Burgers with a sinusoidal initial condition,\n .\
-                BurgerSW stands for Burgers with a sum of waves as initial condition.\n")'''
-
-        system_names = ["SIR","Lorenz","Brusselator","Arenstorf","BurgerQ","Burger1W","BurgerSW"]
-
-        for system in system_names:
+        
+        for system in selected_systems:
 
                 if not os.path.exists("savedReports/"):
                         os.mkdir("savedReports")
+                reports_dir = os.path.join("savedReports", ab_folder)
+                if not os.path.exists(reports_dir):
+                        os.mkdir(reports_dir)
 
                 btype = None
                         
@@ -44,13 +82,16 @@ if __name__ == '__main__':
                         nodes_list = ["uniform","lobatto"]
                 else:
                         nodes_list = ["uniform"]
-                        
+                
                 for nodes in nodes_list:
 
                         print(f"\n\n Generating experiments for {system} and {nodes} collocation points\n\n")
 
                         with parallel_config(backend="loky", inner_max_num_threads=2):
-                                output = Parallel(n_jobs=2)(delayed(run_experiment)((system,nodes)) for _ in tqdm(range(number_iterates)))
+                                output = Parallel(n_jobs=2)(
+                                        delayed(run_experiment)((system,nodes,args.ab_init,args.a_min,args.a_max))
+                                        for _ in tqdm(range(number_iterates))
+                                )
 
                         total_time, avg_coarse_step = list(zip(*output))
                         total_time = np.array(total_time)
@@ -62,16 +103,16 @@ if __name__ == '__main__':
                         print(f"The average cost over {number_iterates} of the hybrid parareal is {average_coarse_steps}")
 
                         if system=="BurgerQ":
-                                name_file = "savedReports/report_Burger_quadratic.txt"
+                                name_file = os.path.join(reports_dir, "report_Burger_quadratic.txt")
                         elif system=="Burger1W":
-                                name_file = "savedReports/report_Burger_one_wave.txt"
+                                name_file = os.path.join(reports_dir, "report_Burger_one_wave.txt")
                         elif system=="BurgerSW":
-                                name_file = "savedReports/report_Burger_sum_waves.txt"
+                                name_file = os.path.join(reports_dir, "report_Burger_sum_waves.txt")
                         else:
-                                if system=="Lorenz" and nodes!="uniform":
-                                        name_file = f"savedReports/report_{system}_{nodes}.txt"
+                                if nodes!="uniform":
+                                        name_file = os.path.join(reports_dir, f"report_{system}_{nodes}.txt")
                                 else:
-                                        name_file = f"savedReports/report_{system}.txt"
+                                        name_file = os.path.join(reports_dir, f"report_{system}.txt")
                                 
                         with open(name_file, "w") as file1:
                                 # Writing data to a file
@@ -81,7 +122,11 @@ if __name__ == '__main__':
                                 file1.write(f"The average cost over {number_iterates} of the hybrid parareal is {average_cost}\n")
                                 file1.write(f"The average cost coarse over {number_iterates} of the hybrid parareal is {average_coarse_steps}\n")
 
-                        _,_,coarse_approx,networks,data = run_experiment([system,nodes],return_nets=True,verbose=False)
+                        _,_,coarse_approx,networks,data = run_experiment(
+                                [system,nodes,args.ab_init,args.a_min,args.a_max],
+                                return_nets=True,
+                                verbose=False
+                        )
 
                         if system=="Burger" or system=="BurgerQ":
                                 btype = "quadratic"

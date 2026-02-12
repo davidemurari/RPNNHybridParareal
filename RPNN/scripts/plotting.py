@@ -1,4 +1,4 @@
-def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_of_labels,n_x,L,vec,avg_time=-1,number_iterates=1,btype=None,network_sol_lobatto=[],avg_time_lobatto=None,network_sol_SIR_flow=[],avg_time_SIR_flow=None):
+def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_of_labels,n_x,L,vec,avg_time=-1,number_iterates=1,btype=None,network_sol_lobatto=[],avg_time_lobatto=None,network_sol_SIR_flow=[],avg_time_SIR_flow=None,ab_init="uniform"):
 
     import numpy as np
     import matplotlib.pyplot as plt
@@ -16,6 +16,11 @@ def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_o
 
     if not os.path.exists("savedPlots/"):
         os.mkdir("savedPlots")
+    
+    ab_folder = "centred" if ab_init == "centred" else "uniform"
+    save_dir = os.path.join("savedPlots", ab_folder)
+    if not os.path.exists(save_dir):
+        os.mkdir(save_dir)
 
     if system=="Rober":
         
@@ -43,7 +48,7 @@ def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_o
         plt.legend(loc='center', bbox_to_anchor=(1.14,0.5))
 
         #if avg_time!=-1:
-        plt.savefig(f"savedPlots/{system}.pdf",bbox_inches='tight')
+        plt.savefig(os.path.join(save_dir, f"{system}.pdf"),bbox_inches='tight')
         plt.show();
 
     if system=="SIR":
@@ -71,7 +76,7 @@ def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_o
                 plt.title(title)
 
             #if avg_time!=-1:
-            plt.savefig(f"savedPlots/{system}.pdf",bbox_inches='tight')
+            plt.savefig(os.path.join(save_dir, f"{system}.pdf"),bbox_inches='tight')
             plt.show();
         else:
             fig = plt.figure(figsize=(30,10))
@@ -112,7 +117,7 @@ def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_o
             plt.subplots_adjust(top=0.76, wspace=0.5)
 
             #if avg_time!=-1:
-            plt.savefig(f"savedPlots/{system}.pdf",bbox_inches='tight')
+            plt.savefig(os.path.join(save_dir, f"{system}.pdf"),bbox_inches='tight')
             plt.show();
     
     if system=="Lorenz":
@@ -154,7 +159,7 @@ def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_o
         plt.subplots_adjust(top=0.76, wspace=0.5)
 
         #if avg_time!=-1:
-        plt.savefig(f"savedPlots/{system}.pdf",bbox_inches='tight')
+        plt.savefig(os.path.join(save_dir, f"{system}.pdf"),bbox_inches='tight')
         plt.show();
         
     if system=="Brusselator":
@@ -194,7 +199,7 @@ def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_o
         plt.subplots_adjust(top=0.9, wspace=0.5)
 
         #if avg_time!=-1:
-        plt.savefig(f"savedPlots/{system}.pdf",bbox_inches='tight')
+        plt.savefig(os.path.join(save_dir, f"{system}.pdf"),bbox_inches='tight')
         plt.show();
         
     if system=="Arenstorf":
@@ -233,7 +238,7 @@ def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_o
         plt.subplots_adjust(top=0.9, wspace=0.5)
 
         #if avg_time!=-1:
-        plt.savefig(f"savedPlots/{system}.pdf",bbox_inches='tight')
+        plt.savefig(os.path.join(save_dir, f"{system}.pdf"),bbox_inches='tight')
         plt.show();
 
     if system=="Burger":
@@ -296,7 +301,7 @@ def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_o
         plt.subplots_adjust(top=0.8, wspace=0.5)
 
         #if avg_time!=-1:
-        plt.savefig(f"savedPlots/{system}_{btype}.pdf", bbox_inches='tight')
+        plt.savefig(os.path.join(save_dir, f"{system}_{btype}.pdf"), bbox_inches='tight')
         plt.show()'''
         import matplotlib.pyplot as plt
         import numpy as np
@@ -363,6 +368,5 @@ def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_o
         plt.subplots_adjust(top=0.8, wspace=0.5)
 
         #if avg_time!=-1:
-        plt.savefig(f"savedPlots/{system}_{btype}.pdf", bbox_inches='tight')
+        plt.savefig(os.path.join(save_dir, f"{system}_{btype}.pdf"), bbox_inches='tight')
         plt.show()
-
