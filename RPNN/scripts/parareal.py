@@ -109,7 +109,9 @@ def parallel_solver(
     vecRef,
     number_processors,
     verbose=False,
-    rel_thresh=1e-1
+    rel_thresh=1e-1,
+    track_history=False,
+    fine_reference=None,
     ):
     
     np.random.seed(17)
@@ -117,6 +119,17 @@ def parallel_solver(
     
     prev_Xi = None       # will hold projection matrices from previous iterate
     freeze = False       # global flag
+    iterates_history = []
+    error_history = []
+    
+    y0 = data["y0"]
+    if fine_reference is not None:
+        fine_reference = np.asarray(fine_reference)
+        expected_shape = (len(time), len(y0))
+        if fine_reference.shape != expected_shape:
+            raise ValueError(
+                f"fine_reference must have shape {expected_shape}, got {fine_reference.shape}"
+            )
     
     max_it = 20 #maximum number of parareal iterates
     tol = 1e-4
@@ -162,6 +175,15 @@ def parallel_solver(
                 print("Maximum norm of difference :",np.round(np.max(norm_difference),10))
             is_converged = np.max(norm_difference)<tol
         
+        if track_history or fine_reference is not None:
+            snapshot = coarse_values_parareal.copy()
+            iterates_history.append(snapshot)
+            if fine_reference is not None:
+                diff_norm = np.linalg.norm(snapshot - fine_reference, axis=1)
+                ref_norm = np.linalg.norm(fine_reference, axis=1)
+                rel_err = np.max(diff_norm) / max(np.max(ref_norm), 1e-14)
+                error_history.append(rel_err)
+        
         # print(f"Iterate {it}")
         if prev_Xi is None:
             # first time we have networks from two consecutive it’s: store and go on
@@ -194,4 +216,11 @@ def parallel_solver(
     
     total_time = time_lib.time()-initial_full
 
+    if track_history or fine_reference is not None:
+        diagnostics = {
+            "iterates_history": iterates_history,
+            "error_history": error_history,
+        }
+        return coarse_approx,networks,total_time,number_processors,cost/len(dts),diagnostics
+    
     return coarse_approx,networks,total_time,number_processors,cost/len(dts)
