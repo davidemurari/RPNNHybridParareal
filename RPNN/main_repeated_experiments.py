@@ -4,6 +4,7 @@ import time as time_lib
 import random
 import os
 import argparse
+import csv
 
 from tqdm import tqdm
 import datetime
@@ -180,6 +181,42 @@ if __name__ == '__main__':
                                 file1.write(f"Experiment with n_x={n_x}, H={L}, nodes={nodes}\n")
                                 file1.write(f"Computational time sequential: {final-initial}\n")
                                 file1.write(f"Computational time parallel with {number_processors} processors: {average_cost}\n")
+
+                        csv_file = os.path.splitext(name_file)[0] + ".csv"
+                        with open(csv_file, "w", newline="") as file_csv:
+                                writer = csv.writer(file_csv)
+                                writer.writerow([
+                                        "timestamp",
+                                        "system",
+                                        "nodes",
+                                        "ab_init",
+                                        "a_min",
+                                        "a_max",
+                                        "num_runs",
+                                        "avg_parallel_time",
+                                        "avg_coarse_step_time",
+                                        "n_x",
+                                        "H",
+                                        "sequential_time",
+                                        "parallel_time_reported",
+                                        "number_processors",
+                                ])
+                                writer.writerow([
+                                        datetime.datetime.now().isoformat(timespec="seconds"),
+                                        system,
+                                        nodes,
+                                        args.ab_init,
+                                        args.a_min,
+                                        args.a_max,
+                                        number_iterates,
+                                        average_cost,
+                                        average_coarse_steps,
+                                        n_x,
+                                        L,
+                                        final - initial,
+                                        average_cost,
+                                        number_processors,
+                                ])
 
                         if len(y0)==2:
                                 list_of_labels = [r"${x}_1$",r"${x}_2$"]

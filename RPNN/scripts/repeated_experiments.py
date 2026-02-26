@@ -12,7 +12,7 @@ from scripts.dynamics import vecField
 from scripts.utils import sample_ab_node_centered, uniformPoints, lobattoPoints
 from scripts.parareal import parallel_solver
 
-def run_experiment(args,return_nets=False,verbose=False):
+def run_experiment(args,return_nets=False,verbose=False,setup_only=False,n_x_override=None,L_override=None):
         
         if len(args) == 2:
                 system, nodes = args
@@ -46,6 +46,16 @@ def run_experiment(args,return_nets=False,verbose=False):
         else:
                 n_x = 5
                 L = 5
+        if n_x_override is not None:
+                n_x = int(n_x_override)
+        if L_override is not None:
+                L = int(L_override)
+        else:
+                L = n_x
+        if n_x < 2 or L < 2:
+                raise ValueError("n_x and L must be >= 2.")
+        if ab_init == "centred" and n_x != L:
+                raise ValueError("For centred init, n_x must equal L.")
         n_t = 2 #we do all the experiments with n_t = 2, which means we really just have coarse intervals
                 #we do not further split them to simplify the problem. On the other hand, the code is flexible
                 #also to this additional splitting.
@@ -54,7 +64,8 @@ def run_experiment(args,return_nets=False,verbose=False):
         UB = 1.
 
         if system=="Rober":
-                t_max = 100.
+                #t_max = 100.
+                t_max = 10.
                 num_t = 101
                 #L = 5
                 vecRef.dt_fine = 1e-4
@@ -151,8 +162,18 @@ def run_experiment(args,return_nets=False,verbose=False):
                 "act_name" : "tanh",
                 "number_processors":number_processors,
                 "t_max":t_max,
+                "lsq_skip_tol":1e-10,
+                "use_warm_start_gate":True,
+                "warm_start_activation_tol":1e-2,
+                "use_active_prefix":True,
+                "use_selective_retrain":False,
+                "selective_retrain_tol":1e-4,
+                "selective_retrain_state_max_norm":1e6,
                 "weight":weight,
                 "bias":bias}
+        
+        if setup_only:
+                return data,time,dts,vecRef,number_processors
                 
         coarse_approx,networks,total_time,_,avg_coarse_step = parallel_solver(time,data,dts,vecRef,number_processors,verbose=verbose)
 

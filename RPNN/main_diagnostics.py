@@ -1,4 +1,5 @@
 import argparse
+import csv
 import os
 import numpy as np
 import matplotlib
@@ -108,6 +109,8 @@ if __name__ == "__main__":
 
     plot_path = os.path.join(plots_dir, f"diagnostics_convergence_{args.system}_{args.nodes}.pdf")
     report_path = os.path.join(reports_dir, f"diagnostics_{args.system}_{args.nodes}.txt")
+    summary_csv_path = os.path.join(reports_dir, f"diagnostics_{args.system}_{args.nodes}.csv")
+    history_csv_path = os.path.join(reports_dir, f"diagnostics_convergence_{args.system}_{args.nodes}.csv")
 
     fig, ax = plt.subplots(figsize=(12, 8))
     ax.semilogy(iterations, error_history, marker="o")
@@ -148,8 +151,51 @@ if __name__ == "__main__":
             f.write(f"parareal_final_rel_error: {error_history[-1]}\n")
             f.write(f"parareal_iterations_recorded: {len(error_history)}\n")
 
+    with open(summary_csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                "system",
+                "nodes",
+                "ab_init",
+                "a_min",
+                "a_max",
+                "dt_fine",
+                "dt_ref",
+                "fine_abs_error_on_coarse_grid",
+                "fine_rel_error_on_coarse_grid",
+                "parareal_initial_guess_rel_error_E0",
+                "parareal_final_rel_error",
+                "parareal_iterations_recorded",
+            ]
+        )
+        writer.writerow(
+            [
+                args.system,
+                args.nodes,
+                args.ab_init,
+                args.a_min,
+                args.a_max,
+                dt_fine,
+                dt_ref,
+                fine_abs_error,
+                fine_rel_error,
+                float(error_history[0]) if len(error_history) > 0 else np.nan,
+                float(error_history[-1]) if len(error_history) > 0 else np.nan,
+                len(error_history),
+            ]
+        )
+
+    with open(history_csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["iteration", "relative_error"])
+        for k, err in enumerate(error_history):
+            writer.writerow([k, float(err)])
+
     print(f"Saved convergence plot: {plot_path}")
     print(f"Saved diagnostics report: {report_path}")
+    print(f"Saved diagnostics summary csv: {summary_csv_path}")
+    print(f"Saved diagnostics convergence csv: {history_csv_path}")
     print(f"Fine solver relative error on coarse grid: {fine_rel_error:.6e}")
     if len(error_history) > 0:
         print(f"Parareal initial guess relative error E0: {error_history[0]:.6e}")

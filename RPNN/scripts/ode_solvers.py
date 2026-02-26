@@ -22,9 +22,17 @@ def solver(args,final=True):
         
     if len(t_eval)==0:
         n_steps = int(tf/vecRef.dt_fine + 1)
+        n_steps = max(2, n_steps)
         time = np.linspace(t0,tf,n_steps)
     else:
         time = t_eval
+
+    if len(time) < 2:
+        if tf <= 0:
+            if final:
+                return np.asarray(u0, dtype=float)
+            return np.asarray([u0], dtype=float), np.asarray([t0], dtype=float)
+        time = np.array([t0, tf], dtype=float)
 
     h = time[1]-time[0]
     sol = np.zeros((len(time),len(u0)))

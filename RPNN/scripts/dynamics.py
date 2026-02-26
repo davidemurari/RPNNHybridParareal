@@ -33,6 +33,14 @@ class vecField:
             self.N = 51
             self.x = np.linspace(0,self.L,self.N)
             self.dx = self.x[1]-self.x[0]
+            vv = np.ones(self.N-1)
+            shift_forward = np.diag(vv,k=1)
+            shift_backward = np.diag(vv,k=-1)
+            # Boundary conditions.
+            shift_backward[-1] *= 0
+            shift_forward[0] *= 0
+            self.D2 = (shift_forward + shift_backward - 2*np.eye(self.N))/(self.dx**2)
+            self.D1 = 1/(2*self.dx) * (shift_forward-shift_backward)
             self.dt_fine = 0.
         else:
             print("This dynamics is not implemented.")
@@ -127,33 +135,10 @@ class vecField:
         
         elif self.system=="Burger":
             if len(y.shape)==2:    
-                
-                N = self.N
-                dx = self.dx
-                vv = np.ones(N-1)
-                Shift_forward = np.diag(vv,k=1)
-                Shift_backward = np.diag(vv,k=-1)
-                #For the boundary conditions
-                Shift_backward[-1]*=0
-                Shift_forward[0]*=0
-                D2 = (Shift_forward + Shift_backward - 2*np.eye(N))/(dx**2)
-                D1 = 1/(2*dx) * (Shift_forward-Shift_backward)
-                
-                vec = -y * (y@D1.T) + self.nu * (y@D2.T)
+                vec = -y * (y@self.D1.T) + self.nu * (y@self.D2.T)
                 return vec
             else:
-                N = self.N
-                dx = self.dx
-                vv = np.ones(N-1)
-                Shift_forward = np.diag(vv,k=1)
-                Shift_backward = np.diag(vv,k=-1)
-                #For the boundary conditions
-                Shift_backward[-1]*=0
-                Shift_forward[0]*=0
-                D2 = (Shift_forward + Shift_backward - 2*np.eye(N))/(dx**2)
-                D1 = 1/(2*dx) * (Shift_forward-Shift_backward)
-                
-                vec = -y * (D1@y) + self.nu * (D2@y)
+                vec = -y * (self.D1@y) + self.nu * (self.D2@y)
                 return vec
                 
         

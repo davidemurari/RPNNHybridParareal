@@ -2,9 +2,7 @@ from scripts.dynamics import *
 import time as time_lib
 from scipy.optimize import least_squares
 from scipy.sparse.linalg import LinearOperator as linOp
-from scipy.sparse import diags
 
-import random
 import numpy as np
 
 
@@ -49,15 +47,16 @@ def sample_ab_node_centered(tau, a_min=5.0, a_max=10.0, jitter=0.01, rng=None):
     return a, b
 
 class flowMap:
-    def __init__(self,y0,initial_proj,weight,bias,dt=1,n_t=2,n_x=5,L=5,LB=-1.,UB=1.,system="Rober",act_name="tanh",nodes="uniform",verbose=False):
+    def __init__(self,y0,initial_proj,weight,bias,dt=1,n_t=2,n_x=5,L=5,LB=-1.,UB=1.,system="Rober",act_name="tanh",nodes="uniform",verbose=False,vec=None,lsq_skip_tol=1e-10):
         
         self.system = system
-        self.vec = vecField(system)
+        self.vec = vec if vec is not None else vecField(system)
         self.act = lambda t,w,b : act(t,w,b,act_name=act_name)
         self.dt = dt
         self.d = len(y0) #dimension phase space
         
         self.verbose = verbose
+        self.lsq_skip_tol = lsq_skip_tol
         
         self.n_x = n_x
         self.h = np.zeros((n_x,L))
@@ -79,21 +78,20 @@ class flowMap:
         elif nodes=="lobatto":
             self.x = lobattoPoints(self.n_x)
         
-        a,b = sample_ab_node_centered(tau=self.x, a_min=abs(self.LB), a_max=abs(self.UB), jitter=0.01)
         
         if len(weight)==0:
-            #self.weight = np.random.uniform(low=self.LB,high=self.UB,size=(self.L))
-            self.weight = a
+            self.weight = np.random.uniform(low=self.LB,high=self.UB,size=(self.L))
         else:
             self.weight = weight
         if len(bias)==0:
-            #self.bias = np.random.uniform(low=self.LB,high=self.UB,size=(self.L))
-            self.bias = b
+            self.bias = np.random.uniform(low=self.LB,high=self.UB,size=(self.L))
         else:
             self.bias = bias
 
-        for i in range(n_x):
-            self.h[i], self.hd[i] = self.act(self.x[i],self.weight,self.bias)
+        x_eval = self.x.reshape(-1,1)
+        w_eval = np.asarray(self.weight).reshape(1,-1)
+        b_eval = np.asarray(self.bias).reshape(1,-1)
+        self.h, self.hd = self.act(x_eval,w_eval,b_eval)
 
         self.h0 = self.h[0] #at the initial time, i.e. at x=0.
         self.hd0 = self.hd[0]
@@ -128,10 +126,6 @@ class flowMap:
         return np.einsum('i,ij->ij',a,H)
 
     def jac_residual(self,c_i,xi_i):
-        
-        np.random.seed(17)
-        random.seed(17)
-
         H = self.h - self.h0    
         weight = xi_i
 
@@ -209,24 +203,8 @@ class flowMap:
         
         elif self.system=="Burger":
             
-            N = self.d     
-            dx = 1/(N-1)
-            vv = np.ones(N-1)
-            Shift_forward = diags([vv], [1], shape=(N, N))#np.diag(vv,k=1)
-            Shift_backward = diags([vv], [-1], shape=(N, N))#np.diag(vv,k=-1)
-
-            Shift_backward = Shift_backward.tolil()
-            Shift_backward[-1, -2] = 0  # Adjust for sparse matrix indexing
-            Shift_forward = Shift_forward.tolil()
-            Shift_forward[0, 1] = 0
-            Shift_backward = Shift_backward.tocsr()
-            Shift_forward = Shift_forward.tocsr()
-
-            D2 = (Shift_forward + Shift_backward - 2*np.eye(N))/(dx**2)
-            D1 = 1/(2*dx) * (Shift_forward-Shift_backward)
-            
-            D2 = D2[1:-1,1:-1]
-            D1 = D1[1:-1,1:-1]
+            D2 = self.vec.D2[1:-1,1:-1]
+            D1 = self.vec.D1[1:-1,1:-1]
                                     
             def vec(Y):
                 return Y.reshape((-1),order='F')
@@ -249,10 +227,6 @@ class flowMap:
             pass
     
     def approximate_flow_map(self):
-        
-        np.random.seed(17)
-        random.seed(17)
-        
         self.training_err_vec[0] = 0.        
         self.sol[0] = self.y0_supp
         
@@ -269,18 +243,46 @@ class flowMap:
             if self.system=="Burger":
                 func = lambda x : self.residual(c_i,x)
                 initial_condition = xi_i[self.L:-self.L]
+                initial_condition = np.nan_to_num(initial_condition, nan=0.0, posinf=0.0, neginf=0.0)
                 jac = lambda x : self.jac_residual(c_i,x)
-                xi_i = least_squares(func,x0=initial_condition,verbose=0,xtol=1e-5,gtol=1e-8,method='trf',jac=jac).x               
-                self.computed_projection_matrices[i,self.L:-self.L] = xi_i
-                Loss = func(self.computed_projection_matrices[i,self.L:-self.L])
+                loss0 = func(initial_condition)
+                if np.all(np.isfinite(loss0)):
+                    loss0_rms = np.sqrt(np.mean(loss0**2))
+                    if self.lsq_skip_tol > 0 and loss0_rms <= self.lsq_skip_tol:
+                        Loss = loss0
+                    else:
+                        try:
+                            xi_i = least_squares(func,x0=initial_condition,verbose=0,xtol=1e-5,gtol=1e-8,method='trf',jac=jac).x
+                        except ValueError:
+                            xi_i = initial_condition
+                        self.computed_projection_matrices[i,self.L:-self.L] = xi_i
+                        Loss = func(self.computed_projection_matrices[i,self.L:-self.L])
+                else:
+                    Loss = np.nan_to_num(loss0, nan=1e12, posinf=1e12, neginf=-1e12)
+                if not np.all(np.isfinite(Loss)):
+                    Loss = np.nan_to_num(Loss, nan=1e12, posinf=1e12, neginf=-1e12)
             else:
                 func = lambda x : self.residual(c_i,x)
                 jac = lambda x : self.jac_residual(c_i,x)
-                if self.system=="Rober":
-                    self.computed_projection_matrices[i] = least_squares(func,x0=xi_i,verbose=0,xtol=1e-8,gtol=1e-8,method='lm',jac=jac).x
+                xi_i = np.nan_to_num(xi_i, nan=0.0, posinf=0.0, neginf=0.0)
+                loss0 = func(xi_i)
+                if np.all(np.isfinite(loss0)):
+                    loss0_rms = np.sqrt(np.mean(loss0**2))
+                    if self.lsq_skip_tol > 0 and loss0_rms <= self.lsq_skip_tol:
+                        Loss = loss0
+                    else:
+                        try:
+                            if self.system=="Rober":
+                                self.computed_projection_matrices[i] = least_squares(func,x0=xi_i,verbose=0,xtol=1e-8,gtol=1e-8,method='lm',jac=jac).x
+                            else:
+                                self.computed_projection_matrices[i] = least_squares(func,x0=xi_i,verbose=0,xtol=1e-5,method='lm',jac=jac).x
+                        except ValueError:
+                            self.computed_projection_matrices[i] = xi_i
+                        Loss = func(self.computed_projection_matrices[i])
                 else:
-                    self.computed_projection_matrices[i] = least_squares(func,x0=xi_i,verbose=0,xtol=1e-5,method='lm',jac=jac).x
-                Loss = func(self.computed_projection_matrices[i])
+                    Loss = np.nan_to_num(loss0, nan=1e12, posinf=1e12, neginf=-1e12)
+                if not np.all(np.isfinite(Loss)):
+                    Loss = np.nan_to_num(Loss, nan=1e12, posinf=1e12, neginf=-1e12)
                 
             y = (self.h-self.h0)@self.to_mat(self.computed_projection_matrices[i],self.L,self.d) + self.y0_supp.reshape(1,-1)
             self.y0_supp = y[-1]

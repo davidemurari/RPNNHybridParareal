@@ -1,8 +1,9 @@
 =========================================================================
-New experiment run at: 2024-May-30 21:43:21
+New experiment run at: 2025-Dec-01 05:45:12
 =========================================================================
-The average cost over 100 of the hybrid parareal is 1.8311668848991394
-The average cost coarse over 100 of the hybrid parareal is 0.0009429567432403565
+The average cost over 100 of the hybrid parareal is 0.7145042705535889
+The average cost coarse over 100 of the hybrid parareal is 0.0003970412254333496
+Freeze is True, Freezing iterate is 2
 Experiment with n_x=5, H=5, nodes=uniform
-Computational time sequential: 0.2976062297821045
-Computational time parallel with 1 processors: 1.8311668848991394
+Computational time sequential: 0.14135503768920898
+Computational time parallel with 1 processors: 0.7145042705535889
