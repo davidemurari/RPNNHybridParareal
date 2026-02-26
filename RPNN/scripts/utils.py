@@ -47,7 +47,7 @@ def sample_ab_node_centered(tau, a_min=5.0, a_max=10.0, jitter=0.01, rng=None):
     return a, b
 
 class flowMap:
-    def __init__(self,y0,initial_proj,weight,bias,dt=1,t_start=0.,n_t=2,n_x=5,L=5,LB=-1.,UB=1.,system="Rober",act_name="tanh",nodes="uniform",verbose=False,vec=None,lsq_skip_tol=1e-10):
+    def __init__(self,y0,initial_proj,weight,bias,dt=1,t_start=0.,n_t=2,n_x=5,L=5,LB=-1.,UB=1.,system="Rober",act_name="tanh",nodes="uniform",verbose=False,vec=None,lsq_skip_tol=1e-10,profile_timing=True,enable_fast_lsq=True,lsq_fast_max_nfev=10,lsq_fast_rms_tol=1e-6):
         
         self.system = system
         self.vec = vec if vec is not None else vecField(system)
@@ -58,6 +58,10 @@ class flowMap:
         
         self.verbose = verbose
         self.lsq_skip_tol = lsq_skip_tol
+        self.profile_timing = profile_timing
+        self.enable_fast_lsq = enable_fast_lsq
+        self.lsq_fast_max_nfev = lsq_fast_max_nfev
+        self.lsq_fast_rms_tol = lsq_fast_rms_tol
         
         self.n_x = n_x
         self.h = np.zeros((n_x,L))
@@ -97,26 +101,48 @@ class flowMap:
 
         self.h0 = self.h[0] #at the initial time, i.e. at x=0.
         self.hd0 = self.hd[0]
+        self.H = self.h - self.h0
+        if self.system == "Burger":
+            # Workspace to avoid reallocating padded Burger coefficients in residual().
+            self._burger_w_full = np.zeros(self.L * self.d)
         
         self.computational_time = None        
         self.computed_projection_matrices = np.tile(initial_proj,(self.n_t-1,1)) #one per time subintreval       
         self.computed_initial_conditions = np.zeros((self.n_t-1,self.d)) #one per time subinterval
         self.training_err_vec = np.zeros((self.n_t,1))
         self.sol = np.zeros((self.n_t,self.d))
+        self.profile_last = {}
+        self.profile_cumulative = {
+            "train_calls": 0,
+            "residual_calls": 0,
+            "residual_time": 0.0,
+            "jac_calls": 0,
+            "jac_time": 0.0,
+            "lsq_calls": 0,
+            "lsq_fast_calls": 0,
+            "lsq_full_calls": 0,
+            "lsq_fallbacks": 0,
+            "lsq_time": 0.0,
+            "lsq_skips": 0,
+            "total_time": 0.0,
+        }
     
     def to_mat(self,y,a,b):
         return y.reshape((a,b),order='F')
     
     def residual(self,c_i,xi_i,t_nodes=None):
         #if system=Burger we suppose xi_i to have only weights for internal nodes and the rest is set to 0
+        H = self.H
         if self.system=="Burger":
-            zero = np.zeros((self.L,1))
-            w = np.concatenate((zero,xi_i.reshape((self.L,self.d-2),order='F'),zero),axis=1).reshape(-1,order='F')
-            y = (self.h-self.h0)@self.to_mat(w,self.L,self.d) + self.y0_supp.reshape(1,-1)
-            y_dot = c_i * self.hd @ self.to_mat(w,self.L,self.d)
+            w_full = self.to_mat(self._burger_w_full, self.L, self.d)
+            w_full.fill(0.0)
+            w_full[:, 1:-1] = self.to_mat(xi_i, self.L, self.d - 2)
+            y = H @ w_full + self.y0_supp.reshape(1,-1)
+            y_dot = c_i * (self.hd @ w_full)
         else:
-            y = (self.h-self.h0)@self.to_mat(xi_i,self.L,self.d) + self.y0_supp.reshape(1,-1)
-            y_dot = c_i * self.hd @ self.to_mat(xi_i,self.L,self.d)
+            W = self.to_mat(xi_i, self.L, self.d)
+            y = H @ W + self.y0_supp.reshape(1,-1)
+            y_dot = c_i * (self.hd @ W)
         
         if t_nodes is None:
             vecValue = self.vec.eval(0.0,y)
@@ -131,7 +157,8 @@ class flowMap:
         return np.einsum('i,ij->ij',a,H)
 
     def jac_residual(self,c_i,xi_i,t_nodes=None):
-        H = self.h - self.h0    
+        H = self.H
+        c_hd = c_i * self.hd
         weight = xi_i
 
         if self.system=="Burger":
@@ -140,42 +167,60 @@ class flowMap:
         else:
             W = self.to_mat(weight,self.L,self.d)
             y = H@W + self.y0_supp.reshape(1,-1)
+
+        def rs(i):
+            return slice(i * self.n_x, (i + 1) * self.n_x)
+
+        def cs(i):
+            return slice(i * self.L, (i + 1) * self.L)
                 
         if self.system=="Rober":
-            #Verified
-            y1,y2,y3 = y[:,0],y[:,1],y[:,2]
+            y2,y3 = y[:,1],y[:,2]
             k1,k2,k3 = self.vec.k1, self.vec.k2, self.vec.k3
-            zz = np.zeros((self.n_x,self.L))
-            row1 = np.concatenate((c_i*self.hd+k1*H,-k3*self.re(y3,H),-k3*self.re(y2,H)),axis=1)
-            row2 = np.concatenate((-k1*H,c_i*self.hd+self.re(2*k2*y2+k3*y3,H),k3*self.re(y2,H)),axis=1)
-            row3 = np.concatenate((zz,-2*k2*self.re(y2,H),c_i*self.hd),axis=1)
-            return np.concatenate((row1,row2,row3),axis=0)
+            J = np.zeros((self.n_x * self.d, self.L * self.d))
+            y2H = y2[:, None] * H
+            y3H = y3[:, None] * H
+            J[rs(0), cs(0)] = c_hd + k1 * H
+            J[rs(0), cs(1)] = -k3 * y3H
+            J[rs(0), cs(2)] = -k3 * y2H
+            J[rs(1), cs(0)] = -k1 * H
+            J[rs(1), cs(1)] = c_hd + (2 * k2 * y2 + k3 * y3)[:, None] * H
+            J[rs(1), cs(2)] = k3 * y2H
+            J[rs(2), cs(1)] = -2 * k2 * y2H
+            J[rs(2), cs(2)] = c_hd
+            return J
         
         elif self.system=="SIR":
-            #Verified
             y1,y2,y3 = y[:,0],y[:,1],y[:,2]
-            zz = np.zeros((self.n_x,self.L))
             beta,gamma,N = self.vec.beta, self.vec.gamma, self.vec.N
-            row1 = np.concatenate((c_i*self.hd+beta*self.re(y2,H)/N,beta*self.re(y1,H)/N,zz),axis=1)
-            row2 = np.concatenate((-beta*self.re(y2,H)/N,c_i*self.hd-beta*self.re(y1,H)/N+gamma*H,zz),axis=1)
-            row3 = np.concatenate((zz,-gamma*H,c_i*self.hd),axis=1)
-            return np.concatenate((row1,row2,row3),axis=0)
+            J = np.zeros((self.n_x * self.d, self.L * self.d))
+            by1H = (beta / N) * (y1[:, None] * H)
+            by2H = (beta / N) * (y2[:, None] * H)
+            J[rs(0), cs(0)] = c_hd + by2H
+            J[rs(0), cs(1)] = by1H
+            J[rs(1), cs(0)] = -by2H
+            J[rs(1), cs(1)] = c_hd - by1H + gamma * H
+            J[rs(2), cs(1)] = -gamma * H
+            J[rs(2), cs(2)] = c_hd
+            return J
     
         elif self.system=="Brusselator":
-            #Verified
             xx,yy = y[:,0],y[:,1]
-            zz = np.zeros((self.n_x,self.L))
             A,B = self.vec.A, self.vec.B
-            
-            row1 = np.concatenate((c_i*self.hd-2*self.re(xx*yy,H)+(B+1)*H,-self.re(xx**2,H)),axis=1)
-            row2 = np.concatenate((-B*H+2*self.re(xx*yy,H),c_i*self.hd+self.re(xx**2,H)),axis=1)
-            return np.concatenate((row1,row2),axis=0)
+            _ = A
+            J = np.zeros((self.n_x * self.d, self.L * self.d))
+            xyH = (xx * yy)[:, None] * H
+            xx2H = (xx ** 2)[:, None] * H
+            J[rs(0), cs(0)] = c_hd - 2 * xyH + (B + 1) * H
+            J[rs(0), cs(1)] = -xx2H
+            J[rs(1), cs(0)] = -B * H + 2 * xyH
+            J[rs(1), cs(1)] = c_hd + xx2H
+            return J
     
         elif self.system=="Arenstorf":
-            #Verified
             xx,xxp,yy,yyp = y[:,0],y[:,1],y[:,2],y[:,3]
-            zz = np.zeros((self.n_x,self.L))
             a,b = self.vec.a,self.vec.b
+            _ = (xxp, yyp)
             
             D1 = ((xx+a)**2+yy**2)**(3/2)
             D2 = ((xx-b)**2+yy**2)**(3/2)
@@ -189,22 +234,34 @@ class flowMap:
             
             dypp_dx = yy*(b*D1_dx/D1**2+a*D2_dx/D2**2)
             dypp_dy = 1-b/D1+b*yy*D1_dy/D1**2-a/D2+a*yy*D2_dy/D2**2
-            
-            row1 = np.concatenate((c_i*self.hd,-H,zz,zz),axis=1)
-            row2 = np.concatenate((-self.re(dxpp_dx,H),c_i*self.hd,-self.re(dxpp_dy,H),-2*H),axis=1)
-            row3 = np.concatenate((zz,zz,c_i*self.hd,-H),axis=1)
-            row4 = np.concatenate((-self.re(dypp_dx,H),2*H,-self.re(dypp_dy,H),c_i*self.hd),axis=1)
-            return np.concatenate((row1,row2,row3,row4),axis=0)
+            J = np.zeros((self.n_x * self.d, self.L * self.d))
+            J[rs(0), cs(0)] = c_hd
+            J[rs(0), cs(1)] = -H
+            J[rs(1), cs(0)] = -(dxpp_dx[:, None] * H)
+            J[rs(1), cs(1)] = c_hd
+            J[rs(1), cs(2)] = -(dxpp_dy[:, None] * H)
+            J[rs(1), cs(3)] = -2 * H
+            J[rs(2), cs(2)] = c_hd
+            J[rs(2), cs(3)] = -H
+            J[rs(3), cs(0)] = -(dypp_dx[:, None] * H)
+            J[rs(3), cs(1)] = 2 * H
+            J[rs(3), cs(2)] = -(dypp_dy[:, None] * H)
+            J[rs(3), cs(3)] = c_hd
+            return J
         
         elif self.system=="Lorenz":
-            #Verified
             y1,y2,y3 = y[:,0],y[:,1],y[:,2]
-            zz = np.zeros((self.n_x,self.L))
             sigma,r,b = self.vec.sigma, self.vec.r, self.vec.b
-            row1 = np.concatenate((c_i*self.hd+sigma*H,-sigma*H,zz),axis=1)
-            row2 = np.concatenate((self.re(y3,H)-r*H,c_i*self.hd+H,self.re(y1,H)),axis=1)
-            row3 = np.concatenate((-self.re(y2,H),-self.re(y1,H),c_i*self.hd+b*H),axis=1)
-            return np.concatenate((row1,row2,row3),axis=0)
+            J = np.zeros((self.n_x * self.d, self.L * self.d))
+            J[rs(0), cs(0)] = c_hd + sigma * H
+            J[rs(0), cs(1)] = -sigma * H
+            J[rs(1), cs(0)] = y3[:, None] * H - r * H
+            J[rs(1), cs(1)] = c_hd + H
+            J[rs(1), cs(2)] = y1[:, None] * H
+            J[rs(2), cs(0)] = -(y2[:, None] * H)
+            J[rs(2), cs(1)] = -(y1[:, None] * H)
+            J[rs(2), cs(2)] = c_hd + b * H
+            return J
         
         elif self.system=="Duffing":
             # x' = v
@@ -213,9 +270,13 @@ class flowMap:
             delta = self.vec.delta
             alpha = self.vec.alpha
             beta = self.vec.beta
-            row1 = np.concatenate((c_i*self.hd,-H),axis=1)
-            row2 = np.concatenate((self.re(alpha+3*beta*(xx**2),H),c_i*self.hd+delta*H),axis=1)
-            return np.concatenate((row1,row2),axis=0)
+            _ = vv
+            J = np.zeros((self.n_x * self.d, self.L * self.d))
+            J[rs(0), cs(0)] = c_hd
+            J[rs(0), cs(1)] = -H
+            J[rs(1), cs(0)] = (alpha + 3 * beta * (xx ** 2))[:, None] * H
+            J[rs(1), cs(1)] = c_hd + delta * H
+            return J
         
         elif self.system=="Burger":
             
@@ -246,7 +307,65 @@ class flowMap:
         self.training_err_vec[0] = 0.        
         self.sol[0] = self.y0_supp
         
-        initial_time = time_lib.time()
+        initial_time = time_lib.perf_counter()
+        profile = {
+            "residual_calls": 0,
+            "residual_time": 0.0,
+            "jac_calls": 0,
+            "jac_time": 0.0,
+            "lsq_calls": 0,
+            "lsq_fast_calls": 0,
+            "lsq_full_calls": 0,
+            "lsq_fallbacks": 0,
+            "lsq_time": 0.0,
+            "lsq_skips": 0,
+        }
+
+        def do_lsq(x0, method, jac_fun, kwargs):
+            # Fast first pass: capped work budget, then fallback to full solve only if needed.
+            if self.enable_fast_lsq and self.lsq_fast_max_nfev is not None and self.lsq_fast_max_nfev > 0:
+                lsq_t0 = time_lib.perf_counter()
+                try:
+                    x_fast = least_squares(
+                        timed_residual,
+                        x0=x0,
+                        method=method,
+                        jac=jac_fun,
+                        max_nfev=self.lsq_fast_max_nfev,
+                        **kwargs,
+                    ).x
+                except ValueError:
+                    x_fast = x0
+                if self.profile_timing:
+                    profile["lsq_calls"] += 1
+                    profile["lsq_fast_calls"] += 1
+                    profile["lsq_time"] += time_lib.perf_counter() - lsq_t0
+
+                loss_fast = timed_residual(x_fast)
+                if np.all(np.isfinite(loss_fast)):
+                    loss_fast_rms = np.sqrt(np.mean(loss_fast**2))
+                    if loss_fast_rms <= self.lsq_fast_rms_tol:
+                        return x_fast, loss_fast
+                if self.profile_timing:
+                    profile["lsq_fallbacks"] += 1
+                x0 = x_fast
+
+            lsq_t0 = time_lib.perf_counter()
+            try:
+                x_full = least_squares(
+                    timed_residual,
+                    x0=x0,
+                    method=method,
+                    jac=jac_fun,
+                    **kwargs,
+                ).x
+            except ValueError:
+                x_full = x0
+            if self.profile_timing:
+                profile["lsq_calls"] += 1
+                profile["lsq_full_calls"] += 1
+                profile["lsq_time"] += time_lib.perf_counter() - lsq_t0
+            return x_full, timed_residual(x_full)
         
         for i in range(self.n_t-1):
             
@@ -256,46 +375,74 @@ class flowMap:
             t_nodes = np.linspace(self.t_abs[i],self.t_abs[i+1],self.n_x)
             xi_i = self.computed_projection_matrices[i] 
             self.computed_initial_conditions[i] = self.y0_supp
+            
+            def timed_residual(x):
+                t0 = time_lib.perf_counter()
+                out = self.residual(c_i,x,t_nodes=t_nodes)
+                if self.profile_timing:
+                    profile["residual_calls"] += 1
+                    profile["residual_time"] += time_lib.perf_counter() - t0
+                return out
+
+            def timed_jac(x):
+                t0 = time_lib.perf_counter()
+                out = self.jac_residual(c_i,x,t_nodes=t_nodes)
+                if self.profile_timing:
+                    profile["jac_calls"] += 1
+                    profile["jac_time"] += time_lib.perf_counter() - t0
+                return out
                 
             if self.system=="Burger":
-                func = lambda x : self.residual(c_i,x,t_nodes=t_nodes)
+                func = timed_residual
                 initial_condition = xi_i[self.L:-self.L]
                 initial_condition = np.nan_to_num(initial_condition, nan=0.0, posinf=0.0, neginf=0.0)
-                jac = lambda x : self.jac_residual(c_i,x,t_nodes=t_nodes)
+                jac = timed_jac
                 loss0 = func(initial_condition)
                 if np.all(np.isfinite(loss0)):
                     loss0_rms = np.sqrt(np.mean(loss0**2))
                     if self.lsq_skip_tol > 0 and loss0_rms <= self.lsq_skip_tol:
                         Loss = loss0
+                        if self.profile_timing:
+                            profile["lsq_skips"] += 1
                     else:
-                        try:
-                            xi_i = least_squares(func,x0=initial_condition,verbose=0,xtol=1e-5,gtol=1e-8,method='trf',jac=jac).x
-                        except ValueError:
-                            xi_i = initial_condition
+                        xi_i, Loss = do_lsq(
+                            x0=initial_condition,
+                            method="trf",
+                            jac_fun=jac,
+                            kwargs={"verbose": 0, "xtol": 1e-5, "gtol": 1e-8},
+                        )
                         self.computed_projection_matrices[i,self.L:-self.L] = xi_i
-                        Loss = func(self.computed_projection_matrices[i,self.L:-self.L])
                 else:
                     Loss = np.nan_to_num(loss0, nan=1e12, posinf=1e12, neginf=-1e12)
                 if not np.all(np.isfinite(Loss)):
                     Loss = np.nan_to_num(Loss, nan=1e12, posinf=1e12, neginf=-1e12)
             else:
-                func = lambda x : self.residual(c_i,x,t_nodes=t_nodes)
-                jac = lambda x : self.jac_residual(c_i,x,t_nodes=t_nodes)
+                func = timed_residual
+                jac = timed_jac
                 xi_i = np.nan_to_num(xi_i, nan=0.0, posinf=0.0, neginf=0.0)
                 loss0 = func(xi_i)
                 if np.all(np.isfinite(loss0)):
                     loss0_rms = np.sqrt(np.mean(loss0**2))
                     if self.lsq_skip_tol > 0 and loss0_rms <= self.lsq_skip_tol:
                         Loss = loss0
+                        if self.profile_timing:
+                            profile["lsq_skips"] += 1
                     else:
-                        try:
-                            if self.system=="Rober":
-                                self.computed_projection_matrices[i] = least_squares(func,x0=xi_i,verbose=0,xtol=1e-8,gtol=1e-8,method='lm',jac=jac).x
-                            else:
-                                self.computed_projection_matrices[i] = least_squares(func,x0=xi_i,verbose=0,xtol=1e-5,method='lm',jac=jac).x
-                        except ValueError:
-                            self.computed_projection_matrices[i] = xi_i
-                        Loss = func(self.computed_projection_matrices[i])
+                        if self.system=="Rober":
+                            xi_new, Loss = do_lsq(
+                                x0=xi_i,
+                                method="lm",
+                                jac_fun=jac,
+                                kwargs={"verbose": 0, "xtol": 1e-8, "gtol": 1e-8},
+                            )
+                        else:
+                            xi_new, Loss = do_lsq(
+                                x0=xi_i,
+                                method="lm",
+                                jac_fun=jac,
+                                kwargs={"verbose": 0, "xtol": 1e-5},
+                            )
+                        self.computed_projection_matrices[i] = xi_new
                 else:
                     Loss = np.nan_to_num(loss0, nan=1e12, posinf=1e12, neginf=-1e12)
                 if not np.all(np.isfinite(Loss)):
@@ -305,9 +452,18 @@ class flowMap:
             self.y0_supp = y[-1]
             self.sol[i+1] = self.y0_supp
             self.training_err_vec[i+1] = np.sqrt(np.mean(Loss**2))
-        final_time = time_lib.time()
+        final_time = time_lib.perf_counter()
         
         self.computational_time = final_time-initial_time
+        self.profile_last = {
+            **profile,
+            "total_time": self.computational_time,
+            "n_slabs": self.n_t - 1,
+        }
+        self.profile_cumulative["train_calls"] += 1
+        self.profile_cumulative["total_time"] += self.computational_time
+        for k in ("residual_calls","residual_time","jac_calls","jac_time","lsq_calls","lsq_fast_calls","lsq_full_calls","lsq_fallbacks","lsq_time","lsq_skips"):
+            self.profile_cumulative[k] += self.profile_last[k]
         if self.verbose:
             print(f"Training complete. Required time {self.computational_time}")
     

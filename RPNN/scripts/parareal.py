@@ -47,6 +47,10 @@ def getCoarse(time,data,vecRef,previous=None,networks=None,coarse_mode="rpnn",co
     n_t = data["n_t"]
     system = data["system"]
     lsq_skip_tol = data.get("lsq_skip_tol", 1e-10)
+    enable_fast_lsq = data.get("enable_fast_lsq", True)
+    lsq_fast_max_nfev = data.get("lsq_fast_max_nfev", 10)
+    lsq_fast_rms_tol = data.get("lsq_fast_rms_tol", 1e-6)
+    profile_timing = data.get("profile_timing", True)
     if dts is None:
         dts = np.diff(time)
     
@@ -70,7 +74,27 @@ def getCoarse(time,data,vecRef,previous=None,networks=None,coarse_mode="rpnn",co
             warm_start_activation_tol = data.get("warm_start_activation_tol", 1e-2)
             for i in range(len(time)-1):
                 init_proj_i = warm_start_proj if warm_start_enabled else initial_proj
-                flow = flowMap(y0=coarse_approx[i],initial_proj=init_proj_i,weight=weight,bias=bias,dt=dts[i],t_start=time[i],n_t=n_t,n_x=n_x,L=L,LB=LB,UB=UB,system=system,act_name="Tanh",vec=vecRef,lsq_skip_tol=lsq_skip_tol)
+                flow = flowMap(
+                    y0=coarse_approx[i],
+                    initial_proj=init_proj_i,
+                    weight=weight,
+                    bias=bias,
+                    dt=dts[i],
+                    t_start=time[i],
+                    n_t=n_t,
+                    n_x=n_x,
+                    L=L,
+                    LB=LB,
+                    UB=UB,
+                    system=system,
+                    act_name="Tanh",
+                    vec=vecRef,
+                    lsq_skip_tol=lsq_skip_tol,
+                    profile_timing=profile_timing,
+                    enable_fast_lsq=enable_fast_lsq,
+                    lsq_fast_max_nfev=lsq_fast_max_nfev,
+                    lsq_fast_rms_tol=lsq_fast_rms_tol,
+                )
                 flow.approximate_flow_map()
                 coarse_approx[i+1] = flow.sol[-1]
                 networks.append(flow)
@@ -87,7 +111,27 @@ def getCoarse(time,data,vecRef,previous=None,networks=None,coarse_mode="rpnn",co
                 coarse_approx[i+1] = classical_coarse_step(previous[i], dts[i], vecRef, coarse_dt, t_start=time[i])
         else:
             for i in range(len(time)-1):
-                flow = flowMap(y0=previous[i],initial_proj=initial_proj,weight=weight,bias=bias,dt=dts[i],t_start=time[i],n_t=n_t,n_x=n_x,L=L,LB=LB,UB=UB,system=system,act_name="Tanh",vec=vecRef,lsq_skip_tol=lsq_skip_tol)
+                flow = flowMap(
+                    y0=previous[i],
+                    initial_proj=initial_proj,
+                    weight=weight,
+                    bias=bias,
+                    dt=dts[i],
+                    t_start=time[i],
+                    n_t=n_t,
+                    n_x=n_x,
+                    L=L,
+                    LB=LB,
+                    UB=UB,
+                    system=system,
+                    act_name="Tanh",
+                    vec=vecRef,
+                    lsq_skip_tol=lsq_skip_tol,
+                    profile_timing=profile_timing,
+                    enable_fast_lsq=enable_fast_lsq,
+                    lsq_fast_max_nfev=lsq_fast_max_nfev,
+                    lsq_fast_rms_tol=lsq_fast_rms_tol,
+                )
                 if len(networks)>0:
                     flow.computed_projection_matrices = networks[i].computed_projection_matrices.copy()
                 flow.approximate_flow_map()
@@ -112,6 +156,10 @@ def getNextCoarse(time,y,i,data,vecRef,networks=None, freeze=False,coarse_mode="
     system = data["system"]
     y0 = data["y0"]
     lsq_skip_tol = data.get("lsq_skip_tol", 1e-10)
+    enable_fast_lsq = data.get("enable_fast_lsq", True)
+    lsq_fast_max_nfev = data.get("lsq_fast_max_nfev", 10)
+    lsq_fast_rms_tol = data.get("lsq_fast_rms_tol", 1e-6)
+    profile_timing = data.get("profile_timing", True)
     
     initial_proj = np.kron(y0,np.ones(L)).reshape(1,-1)
     
@@ -134,7 +182,27 @@ def getNextCoarse(time,y,i,data,vecRef,networks=None, freeze=False,coarse_mode="
         if np.all(np.isfinite(next_val)):
             return next_val, networks
     
-    flow = flowMap(y0=y,initial_proj=initial_proj,weight=weight,bias=bias,dt=dts[i],t_start=time[i],n_t=n_t,n_x=n_x,L=L,LB=LB,UB=UB,system=system,act_name="Tanh",vec=vecRef,lsq_skip_tol=lsq_skip_tol)
+    flow = flowMap(
+        y0=y,
+        initial_proj=initial_proj,
+        weight=weight,
+        bias=bias,
+        dt=dts[i],
+        t_start=time[i],
+        n_t=n_t,
+        n_x=n_x,
+        L=L,
+        LB=LB,
+        UB=UB,
+        system=system,
+        act_name="Tanh",
+        vec=vecRef,
+        lsq_skip_tol=lsq_skip_tol,
+        profile_timing=profile_timing,
+        enable_fast_lsq=enable_fast_lsq,
+        lsq_fast_max_nfev=lsq_fast_max_nfev,
+        lsq_fast_rms_tol=lsq_fast_rms_tol,
+    )
     if len(networks)>0:
         flow.computed_projection_matrices = networks[i].computed_projection_matrices.copy()
         #flow.y0 = y
@@ -200,6 +268,24 @@ def parallel_solver(
     tol = 1e-4
     use_active_prefix = data.get("use_active_prefix", True)
     computational_times_per_iterate = []
+    fine_stage_times = []
+    coarse_update_times = []
+    correction_times = []
+    active_slabs_per_iterate = []
+    rpnn_profile_totals = {
+        "train_calls": 0,
+        "residual_calls": 0,
+        "residual_time": 0.0,
+        "jac_calls": 0,
+        "jac_time": 0.0,
+        "lsq_calls": 0,
+        "lsq_fast_calls": 0,
+        "lsq_full_calls": 0,
+        "lsq_fallbacks": 0,
+        "lsq_time": 0.0,
+        "lsq_skips": 0,
+        "flowmap_total_time": 0.0,
+    }
     it = 0
     is_converged = False
     networks = []
@@ -220,16 +306,39 @@ def parallel_solver(
                 coarse_values_parareal = coarse_approx.copy()            
                 cost = time_lib.time()-initial_time
                 computational_times_per_iterate.append(cost)
+                fine_stage_times.append(0.0)
+                coarse_update_times.append(cost)
+                correction_times.append(0.0)
+                active_slabs_per_iterate.append(len(dts))
+                if coarse_mode == "rpnn":
+                    for net in networks:
+                        prof = getattr(net, "profile_last", {})
+                        rpnn_profile_totals["train_calls"] += 1 if prof else 0
+                        rpnn_profile_totals["residual_calls"] += prof.get("residual_calls", 0)
+                        rpnn_profile_totals["residual_time"] += prof.get("residual_time", 0.0)
+                        rpnn_profile_totals["jac_calls"] += prof.get("jac_calls", 0)
+                        rpnn_profile_totals["jac_time"] += prof.get("jac_time", 0.0)
+                        rpnn_profile_totals["lsq_calls"] += prof.get("lsq_calls", 0)
+                        rpnn_profile_totals["lsq_fast_calls"] += prof.get("lsq_fast_calls", 0)
+                        rpnn_profile_totals["lsq_full_calls"] += prof.get("lsq_full_calls", 0)
+                        rpnn_profile_totals["lsq_fallbacks"] += prof.get("lsq_fallbacks", 0)
+                        rpnn_profile_totals["lsq_time"] += prof.get("lsq_time", 0.0)
+                        rpnn_profile_totals["lsq_skips"] += prof.get("lsq_skips", 0)
+                        rpnn_profile_totals["flowmap_total_time"] += prof.get("total_time", 0.0)
                 if verbose:
                     print("Average cost per one coarse step : ",cost/len(dts))            
             else:
                 initial_time = time_lib.time()
+                fine_time_iter = 0.0
+                coarse_time_iter = 0.0
+                corr_time_iter = 0.0
             
                 # Parareal exactness property: after k correction iterates, first k
                 # slab endpoints are already exact. Skip this converged prefix.
                 active_start = 0
                 if use_active_prefix:
                     active_start = min(max(it - 1, 0), len(dts))
+                active_count = max(0, len(dts) - active_start)
 
                 if active_start < len(dts):
                     start_fine = time_lib.time()
@@ -241,8 +350,9 @@ def parallel_solver(
                         pool=pool,
                         t_starts=time[active_start:-1],
                     )
+                    fine_time_iter = time_lib.time() - start_fine
                     if verbose:
-                        print("Time required for the fine solver : ",time_lib.time()-start_fine)
+                        print("Time required for the fine solver : ",fine_time_iter)
                     use_selective_retrain = data.get("use_selective_retrain", True)
                     selective_retrain_tol = data.get("selective_retrain_tol", 1e-4)
                     selective_state_max = data.get("selective_retrain_state_max_norm", 1e6)
@@ -264,14 +374,37 @@ def parallel_solver(
                                 and y_norm <= selective_state_max
                                 and rel_corr <= selective_retrain_tol
                             )
+                        start_coarse = time_lib.time()
                         next,networks = getNextCoarse(y=coarse_values_parareal[i],i=i,time=time,data=data,vecRef=vecRef,networks=networks, freeze=slab_freeze,coarse_mode=coarse_mode,coarse_dt=coarse_dt,dts=dts)
+                        coarse_time_iter += time_lib.time() - start_coarse
+                        if coarse_mode == "rpnn" and len(networks) > i:
+                            prof = getattr(networks[i], "profile_last", {})
+                            rpnn_profile_totals["train_calls"] += 1 if prof else 0
+                            rpnn_profile_totals["residual_calls"] += prof.get("residual_calls", 0)
+                            rpnn_profile_totals["residual_time"] += prof.get("residual_time", 0.0)
+                            rpnn_profile_totals["jac_calls"] += prof.get("jac_calls", 0)
+                            rpnn_profile_totals["jac_time"] += prof.get("jac_time", 0.0)
+                            rpnn_profile_totals["lsq_calls"] += prof.get("lsq_calls", 0)
+                            rpnn_profile_totals["lsq_fast_calls"] += prof.get("lsq_fast_calls", 0)
+                            rpnn_profile_totals["lsq_full_calls"] += prof.get("lsq_full_calls", 0)
+                            rpnn_profile_totals["lsq_fallbacks"] += prof.get("lsq_fallbacks", 0)
+                            rpnn_profile_totals["lsq_time"] += prof.get("lsq_time", 0.0)
+                            rpnn_profile_totals["lsq_skips"] += prof.get("lsq_skips", 0)
+                            rpnn_profile_totals["flowmap_total_time"] += prof.get("total_time", 0.0)
+                        start_corr = time_lib.time()
                         coarse_values_parareal[i+1] = fine_int[loc_i] + next - coarse_approx[i+1]
                         coarse_approx[i+1] = next.copy()
                         norm_difference.append(np.linalg.norm(coarse_values_parareal[i+1]-previous,2))
+                        corr_time_iter += time_lib.time() - start_corr
             
                 if verbose:
                     print("Difference norms : ",norm_difference)   
-                computational_times_per_iterate.append(time_lib.time()-initial_time)
+                iter_time = time_lib.time()-initial_time
+                computational_times_per_iterate.append(iter_time)
+                fine_stage_times.append(fine_time_iter)
+                coarse_update_times.append(coarse_time_iter)
+                correction_times.append(corr_time_iter)
+                active_slabs_per_iterate.append(active_count)
                 if verbose:
                     if len(norm_difference) > 0:
                         print("Maximum norm of difference :",np.round(np.max(norm_difference),10))
@@ -326,9 +459,20 @@ def parallel_solver(
     total_time = time_lib.time()-initial_full
 
     if track_history or fine_reference is not None:
+        timing_profile = {
+            "coarse_mode": coarse_mode,
+            "total_wall_time": total_time,
+            "iterate_total_times": computational_times_per_iterate,
+            "fine_stage_times": fine_stage_times,
+            "coarse_update_times": coarse_update_times,
+            "correction_times": correction_times,
+            "active_slabs_per_iterate": active_slabs_per_iterate,
+            "rpnn_profile_totals": rpnn_profile_totals,
+        }
         diagnostics = {
             "iterates_history": iterates_history,
             "error_history": error_history,
+            "timing_profile": timing_profile,
         }
         return coarse_approx,networks,total_time,number_processors,cost/len(dts),diagnostics
     

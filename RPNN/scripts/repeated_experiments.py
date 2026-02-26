@@ -12,7 +12,7 @@ from scripts.dynamics import vecField
 from scripts.utils import sample_ab_node_centered, uniformPoints, lobattoPoints
 from scripts.parareal import parallel_solver
 
-def run_experiment(args,return_nets=False,verbose=False,setup_only=False,n_x_override=None,L_override=None):
+def run_experiment(args,return_nets=False,verbose=False,setup_only=False,n_x_override=None,L_override=None,num_t_override=None):
         
         if len(args) == 2:
                 system, nodes = args
@@ -71,7 +71,7 @@ def run_experiment(args,return_nets=False,verbose=False,setup_only=False,n_x_ove
                 vecRef.dt_fine = 1e-4
         elif system=="SIR":
                 t_max = 100.
-                num_t = 101
+                num_t = 26
                 #L = 3
                 vecRef.dt_fine = 1e-2
         elif system=="Brusselator":
@@ -101,7 +101,12 @@ def run_experiment(args,return_nets=False,verbose=False,setup_only=False,n_x_ove
         else:
                 print("Dynamics not implemented")
         
-        if system=="Rober":
+        if num_t_override is not None:
+                num_t = int(num_t_override)
+                if num_t < 2:
+                        raise ValueError("num_t_override must be >= 2.")
+                time = np.linspace(0,t_max,num_t)
+        elif system=="Rober":
                 time = np.concatenate((np.linspace(0,1,101)[:-1],np.linspace(1,t_max,34)))
         else:
                 time = np.linspace(0,t_max,num_t)

@@ -99,6 +99,7 @@ if __name__ == "__main__":
     coarse_approx, networks, total_time, _, avg_coarse_step, diagnostics = parareal_out
     _ = coarse_approx, networks, total_time, avg_coarse_step
     error_history = diagnostics["error_history"]
+    timing_profile = diagnostics.get("timing_profile", {})
     iterations = np.arange(len(error_history))
 
     ab_folder = "centred" if args.ab_init == "centred" else "uniform"
@@ -150,6 +151,29 @@ if __name__ == "__main__":
             f.write(f"parareal_initial_guess_rel_error_E0: {error_history[0]}\n")
             f.write(f"parareal_final_rel_error: {error_history[-1]}\n")
             f.write(f"parareal_iterations_recorded: {len(error_history)}\n")
+        if timing_profile:
+            rp = timing_profile.get("rpnn_profile_totals", {})
+            f.write("------------------------------------------------------------\n")
+            f.write("Timing profile\n")
+            f.write("------------------------------------------------------------\n")
+            f.write(f"parareal_total_wall_time: {timing_profile.get('total_wall_time', np.nan)}\n")
+            f.write(f"iterate_total_times: {timing_profile.get('iterate_total_times', [])}\n")
+            f.write(f"fine_stage_times: {timing_profile.get('fine_stage_times', [])}\n")
+            f.write(f"coarse_update_times: {timing_profile.get('coarse_update_times', [])}\n")
+            f.write(f"correction_times: {timing_profile.get('correction_times', [])}\n")
+            f.write(f"active_slabs_per_iterate: {timing_profile.get('active_slabs_per_iterate', [])}\n")
+            f.write(f"rpnn_train_calls: {rp.get('train_calls', 0)}\n")
+            f.write(f"rpnn_lsq_calls: {rp.get('lsq_calls', 0)}\n")
+            f.write(f"rpnn_lsq_fast_calls: {rp.get('lsq_fast_calls', 0)}\n")
+            f.write(f"rpnn_lsq_full_calls: {rp.get('lsq_full_calls', 0)}\n")
+            f.write(f"rpnn_lsq_fallbacks: {rp.get('lsq_fallbacks', 0)}\n")
+            f.write(f"rpnn_lsq_skips: {rp.get('lsq_skips', 0)}\n")
+            f.write(f"rpnn_lsq_time: {rp.get('lsq_time', 0.0)}\n")
+            f.write(f"rpnn_residual_calls: {rp.get('residual_calls', 0)}\n")
+            f.write(f"rpnn_residual_time: {rp.get('residual_time', 0.0)}\n")
+            f.write(f"rpnn_jac_calls: {rp.get('jac_calls', 0)}\n")
+            f.write(f"rpnn_jac_time: {rp.get('jac_time', 0.0)}\n")
+            f.write(f"rpnn_flowmap_total_time: {rp.get('flowmap_total_time', 0.0)}\n")
 
     with open(summary_csv_path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -167,8 +191,22 @@ if __name__ == "__main__":
                 "parareal_initial_guess_rel_error_E0",
                 "parareal_final_rel_error",
                 "parareal_iterations_recorded",
+                "parareal_total_wall_time",
+                "rpnn_train_calls",
+                "rpnn_lsq_calls",
+                "rpnn_lsq_fast_calls",
+                "rpnn_lsq_full_calls",
+                "rpnn_lsq_fallbacks",
+                "rpnn_lsq_skips",
+                "rpnn_lsq_time",
+                "rpnn_residual_calls",
+                "rpnn_residual_time",
+                "rpnn_jac_calls",
+                "rpnn_jac_time",
+                "rpnn_flowmap_total_time",
             ]
         )
+        rp = timing_profile.get("rpnn_profile_totals", {})
         writer.writerow(
             [
                 args.system,
@@ -183,6 +221,19 @@ if __name__ == "__main__":
                 float(error_history[0]) if len(error_history) > 0 else np.nan,
                 float(error_history[-1]) if len(error_history) > 0 else np.nan,
                 len(error_history),
+                timing_profile.get("total_wall_time", np.nan),
+                rp.get("train_calls", 0),
+                rp.get("lsq_calls", 0),
+                rp.get("lsq_fast_calls", 0),
+                rp.get("lsq_full_calls", 0),
+                rp.get("lsq_fallbacks", 0),
+                rp.get("lsq_skips", 0),
+                rp.get("lsq_time", 0.0),
+                rp.get("residual_calls", 0),
+                rp.get("residual_time", 0.0),
+                rp.get("jac_calls", 0),
+                rp.get("jac_time", 0.0),
+                rp.get("flowmap_total_time", 0.0),
             ]
         )
 
@@ -199,3 +250,15 @@ if __name__ == "__main__":
     print(f"Fine solver relative error on coarse grid: {fine_rel_error:.6e}")
     if len(error_history) > 0:
         print(f"Parareal initial guess relative error E0: {error_history[0]:.6e}")
+    if timing_profile:
+        rp = timing_profile.get("rpnn_profile_totals", {})
+        print(
+            "Timing profile: "
+            f"lsq_calls={rp.get('lsq_calls', 0)}, "
+            f"lsq_fast={rp.get('lsq_fast_calls', 0)}, "
+            f"lsq_full={rp.get('lsq_full_calls', 0)}, "
+            f"lsq_fallbacks={rp.get('lsq_fallbacks', 0)}, "
+            f"lsq_time={rp.get('lsq_time', 0.0):.6f}s, "
+            f"residual_calls={rp.get('residual_calls', 0)}, "
+            f"jac_calls={rp.get('jac_calls', 0)}"
+        )
