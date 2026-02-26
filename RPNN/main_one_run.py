@@ -15,7 +15,7 @@ from scripts.repeated_experiments import run_experiment
 
 if __name__ == '__main__':
         
-        system_names = ["SIR","Lorenz","Brusselator","Arenstorf","Rober","BurgerQ","Burger1W","BurgerSW"]
+        system_names = ["SIR","Lorenz","Brusselator","Arenstorf","Duffing","Rober","BurgerQ","Burger1W","BurgerSW"]
 
         parser = argparse.ArgumentParser(description="Run a single experiment for a selected dynamical system.")
         parser.add_argument(

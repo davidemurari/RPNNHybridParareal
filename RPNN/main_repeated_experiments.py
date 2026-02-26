@@ -22,7 +22,7 @@ from tqdm import tqdm
 
 if __name__ == '__main__':
         
-        system_names = ["SIR","Lorenz","Brusselator","Arenstorf","BurgerQ","Burger1W","BurgerSW"]
+        system_names = ["SIR","Lorenz","Brusselator","Arenstorf","Duffing","BurgerQ","Burger1W","BurgerSW"]
 
         parser = argparse.ArgumentParser(description="Run repeated experiments for selected dynamical systems.")
         parser.add_argument(

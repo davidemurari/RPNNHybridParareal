@@ -50,7 +50,7 @@ def sample_solution(time_src, sol_src, time_target):
 
 
 if __name__ == "__main__":
-    system_names = ["SIR", "Lorenz", "Brusselator", "Arenstorf", "Rober", "BurgerQ", "Burger1W", "BurgerSW"]
+    system_names = ["SIR", "Lorenz", "Brusselator", "Arenstorf", "Duffing", "Rober", "BurgerQ", "Burger1W", "BurgerSW"]
 
     parser = argparse.ArgumentParser(
         description="Compare RPNN-Parareal vs classical Parareal on the same macro grid used by main_repeated_experiments."

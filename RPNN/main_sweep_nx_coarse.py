@@ -77,7 +77,7 @@ def mean_std(arr):
 
 
 if __name__ == "__main__":
-    system_names = ["SIR", "Lorenz", "Brusselator", "Arenstorf", "Rober", "BurgerQ", "Burger1W", "BurgerSW"]
+    system_names = ["SIR", "Lorenz", "Brusselator", "Arenstorf", "Duffing", "Rober", "BurgerQ", "Burger1W", "BurgerSW"]
 
     parser = argparse.ArgumentParser(
         description="Sweep n_x (=L) and coarse factors on a grid, comparing RPNN and classical Parareal."

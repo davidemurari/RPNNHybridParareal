@@ -5,22 +5,24 @@ import time as time_lib
 from scripts.ode_solvers import solver
 from scripts.utils import flowMap
 
-def classical_coarse_step(y0, dt, vecRef, coarse_dt):
+def classical_coarse_step(y0, dt, vecRef, coarse_dt, t_start=0.0):
     if coarse_dt is None or coarse_dt <= 0:
         raise ValueError("coarse_dt must be a positive float for classical coarse mode.")
     n_steps = max(2, int(np.ceil(dt / coarse_dt)) + 1)
-    t_eval = np.linspace(0.0, dt, n_steps)
-    return solver(([y0, dt, t_eval], vecRef))
+    t_eval = np.linspace(t_start, t_start + dt, n_steps)
+    return solver(([y0, t_start + dt, t_eval], vecRef))
 
-def fine_integrator(ics,dts,vecRef,number_processors,pool=None):
+def fine_integrator(ics,dts,vecRef,number_processors,pool=None,t_starts=None):
+    if t_starts is None:
+        t_starts = np.zeros(len(dts))
     if number_processors==1:
         output = np.zeros_like(ics)
-        args = [(args,vecRef) for args in zip(ics,dts)]
+        args = [([ics[i],t_starts[i],t_starts[i]+dts[i],[]],vecRef) for i in range(len(dts))]
         for i in range(len(dts)):
             output[i] = solver(args[i])
         return output
     else:
-        tasks = [(args,vecRef) for args in zip(ics,dts)]
+        tasks = [([ics[i],t_starts[i],t_starts[i]+dts[i],[]],vecRef) for i in range(len(dts))]
         if pool is not None:
             output = pool.map(solver,tasks)
         else:
@@ -56,7 +58,7 @@ def getCoarse(time,data,vecRef,previous=None,networks=None,coarse_mode="rpnn",co
     if len(previous)==0:
         if coarse_mode == "classical":
             for i in range(len(time)-1):
-                coarse_approx[i+1] = classical_coarse_step(coarse_approx[i], dts[i], vecRef, coarse_dt)
+                coarse_approx[i+1] = classical_coarse_step(coarse_approx[i], dts[i], vecRef, coarse_dt, t_start=time[i])
         else:
             # First coarse pass:
             # keep using the fixed initial projection until we hit the first
@@ -68,7 +70,7 @@ def getCoarse(time,data,vecRef,previous=None,networks=None,coarse_mode="rpnn",co
             warm_start_activation_tol = data.get("warm_start_activation_tol", 1e-2)
             for i in range(len(time)-1):
                 init_proj_i = warm_start_proj if warm_start_enabled else initial_proj
-                flow = flowMap(y0=coarse_approx[i],initial_proj=init_proj_i,weight=weight,bias=bias,dt=dts[i],n_t=n_t,n_x=n_x,L=L,LB=LB,UB=UB,system=system,act_name="Tanh",vec=vecRef,lsq_skip_tol=lsq_skip_tol)
+                flow = flowMap(y0=coarse_approx[i],initial_proj=init_proj_i,weight=weight,bias=bias,dt=dts[i],t_start=time[i],n_t=n_t,n_x=n_x,L=L,LB=LB,UB=UB,system=system,act_name="Tanh",vec=vecRef,lsq_skip_tol=lsq_skip_tol)
                 flow.approximate_flow_map()
                 coarse_approx[i+1] = flow.sol[-1]
                 networks.append(flow)
@@ -82,10 +84,10 @@ def getCoarse(time,data,vecRef,previous=None,networks=None,coarse_mode="rpnn",co
     else:
         if coarse_mode == "classical":
             for i in range(len(time)-1):
-                coarse_approx[i+1] = classical_coarse_step(previous[i], dts[i], vecRef, coarse_dt)
+                coarse_approx[i+1] = classical_coarse_step(previous[i], dts[i], vecRef, coarse_dt, t_start=time[i])
         else:
             for i in range(len(time)-1):
-                flow = flowMap(y0=previous[i],initial_proj=initial_proj,weight=weight,bias=bias,dt=dts[i],n_t=n_t,n_x=n_x,L=L,LB=LB,UB=UB,system=system,act_name="Tanh",vec=vecRef,lsq_skip_tol=lsq_skip_tol)
+                flow = flowMap(y0=previous[i],initial_proj=initial_proj,weight=weight,bias=bias,dt=dts[i],t_start=time[i],n_t=n_t,n_x=n_x,L=L,LB=LB,UB=UB,system=system,act_name="Tanh",vec=vecRef,lsq_skip_tol=lsq_skip_tol)
                 if len(networks)>0:
                     flow.computed_projection_matrices = networks[i].computed_projection_matrices.copy()
                 flow.approximate_flow_map()
@@ -114,7 +116,7 @@ def getNextCoarse(time,y,i,data,vecRef,networks=None, freeze=False,coarse_mode="
     initial_proj = np.kron(y0,np.ones(L)).reshape(1,-1)
     
     if coarse_mode == "classical":
-        return classical_coarse_step(y, dts[i], vecRef, coarse_dt), networks
+        return classical_coarse_step(y, dts[i], vecRef, coarse_dt, t_start=time[i]), networks
 
     # Fast path for selective retraining: reuse already-trained slab model and
     # only propagate with updated initial condition.
@@ -132,7 +134,7 @@ def getNextCoarse(time,y,i,data,vecRef,networks=None, freeze=False,coarse_mode="
         if np.all(np.isfinite(next_val)):
             return next_val, networks
     
-    flow = flowMap(y0=y,initial_proj=initial_proj,weight=weight,bias=bias,dt=dts[i],n_t=n_t,n_x=n_x,L=L,LB=LB,UB=UB,system=system,act_name="Tanh",vec=vecRef,lsq_skip_tol=lsq_skip_tol)
+    flow = flowMap(y0=y,initial_proj=initial_proj,weight=weight,bias=bias,dt=dts[i],t_start=time[i],n_t=n_t,n_x=n_x,L=L,LB=LB,UB=UB,system=system,act_name="Tanh",vec=vecRef,lsq_skip_tol=lsq_skip_tol)
     if len(networks)>0:
         flow.computed_projection_matrices = networks[i].computed_projection_matrices.copy()
         #flow.y0 = y
@@ -237,6 +239,7 @@ def parallel_solver(
                         vecRef,
                         number_processors,
                         pool=pool,
+                        t_starts=time[active_start:-1],
                     )
                     if verbose:
                         print("Time required for the fine solver : ",time_lib.time()-start_fine)

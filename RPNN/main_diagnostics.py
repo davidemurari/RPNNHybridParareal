@@ -34,7 +34,7 @@ def max_rel_error(sol_a, sol_b):
 
 
 if __name__ == "__main__":
-    system_names = ["SIR", "Lorenz", "Brusselator", "Arenstorf", "Rober", "BurgerQ", "Burger1W", "BurgerSW"]
+    system_names = ["SIR", "Lorenz", "Brusselator", "Arenstorf", "Duffing", "Rober", "BurgerQ", "Burger1W", "BurgerSW"]
 
     parser = argparse.ArgumentParser(description="Run diagnostics: fine-solver accuracy and Parareal convergence plot.")
     parser.add_argument("--system", choices=system_names, required=True, help="System to analyze.")

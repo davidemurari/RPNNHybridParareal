@@ -27,6 +27,13 @@ class vecField:
             self.r = 28.
             self.b = 8/3
             self.dt_fine = 0.
+        elif self.system=="Duffing":
+            self.delta = 0.2
+            self.alpha = -1.0
+            self.beta = 1.0
+            self.gamma = 0.3
+            self.omega = 1.2
+            self.dt_fine = 0.
         elif self.system=="Burger":
             self.nu = 1/50
             self.L = 1.
@@ -46,7 +53,11 @@ class vecField:
             print("This dynamics is not implemented.")
             
     
-    def eval(self,y):
+    def eval(self,t,y=None):
+        # Backward compatibility: allow eval(y) calls.
+        if y is None:
+            y = t
+            t = 0.0
         if self.system=="Rober":            
             if len(y.shape)==2:
                 y1,y2,y3 = y[:,0:1],y[:,1:2],y[:,2:3]
@@ -131,6 +142,25 @@ class vecField:
                     -self.sigma*xx+self.sigma*yy,
                     -xx*zz+self.r*xx-yy,
                     xx*yy-self.b*zz
+                ])
+        elif self.system=="Duffing":
+            if len(y.shape)==2:
+                xx,vv = y[:,0:1],y[:,1:2]
+                tt = np.asarray(t)
+                if tt.ndim == 0:
+                    tt = np.full((y.shape[0],1), float(tt))
+                elif tt.ndim == 1:
+                    tt = tt.reshape(-1,1)
+                forcing = self.gamma * np.cos(self.omega * tt)
+                return np.concatenate((
+                    vv,
+                    -self.delta*vv - self.alpha*xx - self.beta*(xx**3) + forcing
+                ),axis=1)
+            else:
+                xx,vv = y[0],y[1]
+                return np.array([
+                    vv,
+                    -self.delta*vv - self.alpha*xx - self.beta*(xx**3) + self.gamma*np.cos(self.omega*t)
                 ])
         
         elif self.system=="Burger":

@@ -89,6 +89,10 @@ def run_experiment(args,return_nets=False,verbose=False,setup_only=False,n_x_ove
                 num_t = 251
                 #L = 3
                 vecRef.dt_fine = t_max / 14500
+        elif system=="Duffing":
+                t_max = 50.
+                num_t = 101
+                vecRef.dt_fine = 1e-2
         elif system=="Burger":
                 t_max = 1.
                 num_t = 51
@@ -114,6 +118,8 @@ def run_experiment(args,return_nets=False,verbose=False,setup_only=False,n_x_ove
                 y0 = np.array([0.994,0,0.,-2.00158510637908252240537862224])
         elif system=="Lorenz":
                 y0 = np.array([20.,5,-5])
+        elif system=="Duffing":
+                y0 = np.array([1.,0.])
         elif system=="Burger":
                 if ic=="quadratic":
                         y0 = vecRef.x*(1.-vecRef.x)

@@ -47,12 +47,13 @@ def sample_ab_node_centered(tau, a_min=5.0, a_max=10.0, jitter=0.01, rng=None):
     return a, b
 
 class flowMap:
-    def __init__(self,y0,initial_proj,weight,bias,dt=1,n_t=2,n_x=5,L=5,LB=-1.,UB=1.,system="Rober",act_name="tanh",nodes="uniform",verbose=False,vec=None,lsq_skip_tol=1e-10):
+    def __init__(self,y0,initial_proj,weight,bias,dt=1,t_start=0.,n_t=2,n_x=5,L=5,LB=-1.,UB=1.,system="Rober",act_name="tanh",nodes="uniform",verbose=False,vec=None,lsq_skip_tol=1e-10):
         
         self.system = system
         self.vec = vec if vec is not None else vecField(system)
         self.act = lambda t,w,b : act(t,w,b,act_name=act_name)
         self.dt = dt
+        self.t_start = t_start
         self.d = len(y0) #dimension phase space
         
         self.verbose = verbose
@@ -73,6 +74,7 @@ class flowMap:
                 
         self.n_t = n_t
         self.t_tot = np.linspace(0,dt,self.n_t)
+        self.t_abs = np.linspace(self.t_start,self.t_start+dt,self.n_t)
         if nodes=="uniform":
             self.x = uniformPoints(self.n_x)
         elif nodes=="lobatto":
@@ -105,7 +107,7 @@ class flowMap:
     def to_mat(self,y,a,b):
         return y.reshape((a,b),order='F')
     
-    def residual(self,c_i,xi_i):
+    def residual(self,c_i,xi_i,t_nodes=None):
         #if system=Burger we suppose xi_i to have only weights for internal nodes and the rest is set to 0
         if self.system=="Burger":
             zero = np.zeros((self.L,1))
@@ -116,7 +118,10 @@ class flowMap:
             y = (self.h-self.h0)@self.to_mat(xi_i,self.L,self.d) + self.y0_supp.reshape(1,-1)
             y_dot = c_i * self.hd @ self.to_mat(xi_i,self.L,self.d)
         
-        vecValue = self.vec.eval(y)
+        if t_nodes is None:
+            vecValue = self.vec.eval(0.0,y)
+        else:
+            vecValue = self.vec.eval(t_nodes,y)
         Loss = (y_dot - vecValue)
         if self.system=="Burger":
             Loss = Loss[:,1:-1]
@@ -125,7 +130,7 @@ class flowMap:
     def re(self,a,H):
         return np.einsum('i,ij->ij',a,H)
 
-    def jac_residual(self,c_i,xi_i):
+    def jac_residual(self,c_i,xi_i,t_nodes=None):
         H = self.h - self.h0    
         weight = xi_i
 
@@ -201,6 +206,17 @@ class flowMap:
             row3 = np.concatenate((-self.re(y2,H),-self.re(y1,H),c_i*self.hd+b*H),axis=1)
             return np.concatenate((row1,row2,row3),axis=0)
         
+        elif self.system=="Duffing":
+            # x' = v
+            # v' = -delta*v - alpha*x - beta*x^3 + gamma*cos(omega*t)
+            xx,vv = y[:,0],y[:,1]
+            delta = self.vec.delta
+            alpha = self.vec.alpha
+            beta = self.vec.beta
+            row1 = np.concatenate((c_i*self.hd,-H),axis=1)
+            row2 = np.concatenate((self.re(alpha+3*beta*(xx**2),H),c_i*self.hd+delta*H),axis=1)
+            return np.concatenate((row1,row2),axis=0)
+        
         elif self.system=="Burger":
             
             D2 = self.vec.D2[1:-1,1:-1]
@@ -237,14 +253,15 @@ class flowMap:
             self.iter = 1
             
             c_i = (self.x[-1]-self.x[0]) / (self.t_tot[i+1]-self.t_tot[i])
+            t_nodes = np.linspace(self.t_abs[i],self.t_abs[i+1],self.n_x)
             xi_i = self.computed_projection_matrices[i] 
             self.computed_initial_conditions[i] = self.y0_supp
                 
             if self.system=="Burger":
-                func = lambda x : self.residual(c_i,x)
+                func = lambda x : self.residual(c_i,x,t_nodes=t_nodes)
                 initial_condition = xi_i[self.L:-self.L]
                 initial_condition = np.nan_to_num(initial_condition, nan=0.0, posinf=0.0, neginf=0.0)
-                jac = lambda x : self.jac_residual(c_i,x)
+                jac = lambda x : self.jac_residual(c_i,x,t_nodes=t_nodes)
                 loss0 = func(initial_condition)
                 if np.all(np.isfinite(loss0)):
                     loss0_rms = np.sqrt(np.mean(loss0**2))
@@ -262,8 +279,8 @@ class flowMap:
                 if not np.all(np.isfinite(Loss)):
                     Loss = np.nan_to_num(Loss, nan=1e12, posinf=1e12, neginf=-1e12)
             else:
-                func = lambda x : self.residual(c_i,x)
-                jac = lambda x : self.jac_residual(c_i,x)
+                func = lambda x : self.residual(c_i,x,t_nodes=t_nodes)
+                jac = lambda x : self.jac_residual(c_i,x,t_nodes=t_nodes)
                 xi_i = np.nan_to_num(xi_i, nan=0.0, posinf=0.0, neginf=0.0)
                 loss0 = func(xi_i)
                 if np.all(np.isfinite(loss0)):

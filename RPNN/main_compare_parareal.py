@@ -67,7 +67,7 @@ def build_coarse_grid(t_final, dt_fine, factor):
 
 
 if __name__ == "__main__":
-    system_names = ["SIR", "Lorenz", "Brusselator", "Arenstorf", "Rober", "BurgerQ", "Burger1W", "BurgerSW"]
+    system_names = ["SIR", "Lorenz", "Brusselator", "Arenstorf", "Duffing", "Rober", "BurgerQ", "Burger1W", "BurgerSW"]
 
     parser = argparse.ArgumentParser(description="Compare RPNN-Parareal vs classical Parareal (time-step-coarsened coarse solver).")
     parser.add_argument("--system", choices=system_names, required=True, help="System to compare.")

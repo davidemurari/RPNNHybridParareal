@@ -201,6 +201,38 @@ def plot_results(system,time_plot,time_plot_sequential,output,network_sol,list_o
         #if avg_time!=-1:
         plt.savefig(os.path.join(save_dir, f"{system}.pdf"),bbox_inches='tight')
         plt.show();
+
+    if system=="Duffing":
+        
+        fig = plt.figure(figsize=(30,10))
+        ax1 = plt.subplot2grid((1, 30), (0, 0), colspan=20)
+        
+        back_colors = ["k","b","darkgreen","darkslategrey"]
+        front_colors = ["r","plum","darkturquoise","lightsalmon"]
+        
+        for i in range(len(network_sol)):
+            ax1.plot(time_plot_sequential,output[:,i],'-',color=back_colors[i],label=f"{list_of_labels[i]} ref",linewidth=5)
+            ax1.plot(time_plot,network_sol[i],'--',color=front_colors[i],label=f"{list_of_labels[i]} para",linewidth=5)
+        
+        ax1.set_xlabel(r'$t$')
+        ax1.legend(loc='lower center', ncol=2)
+        
+        ax2 = plt.subplot2grid((1, 30), (0, 22), colspan=8)
+        
+        ax2.plot(output[:,0],output[:,1],'k-',label="ref",linewidth=5)
+        ax2.plot(network_sol[0],network_sol[1],'r--',label="para",linewidth=5)
+        
+        ax2.set_xlabel(list_of_labels[0])
+        ax2.set_ylabel(list_of_labels[1])
+        ax2.legend(loc='lower center', ncol=1)
+        
+        if avg_time!=-1:
+            title = f"Average computational time: {np.round(avg_time,2)}s" if number_iterates>1 else f"Computational time: {np.round(avg_time,2)}s"
+            fig.suptitle(title)
+        
+        plt.subplots_adjust(top=0.9, wspace=0.5)
+        plt.savefig(os.path.join(save_dir, f"{system}.pdf"),bbox_inches='tight')
+        plt.show();
         
     if system=="Arenstorf":
         
